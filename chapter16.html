@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+
+<html lang="ja"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>第16章 データ前処理とパイプライン｜深層学習の基礎と実践</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&amp;family=Shippori+Mincho:wght@500;600;700&amp;family=Zen+Kaku+Gothic+Antique:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="style.css" rel="stylesheet"/><script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async="" src="https://cdn.jsdelivr.net/npm/mathjax@3.2.1/es5/tex-svg-full.js"></script></head><body><div class="topbar"><div class="inner"><a class="book" href="index.html">深層学習の基礎と実践</a><span>第16章</span></div></div><main class="page"><header class="chapter-head"><p class="eyebrow">Part III / Chapter 16</p><h1>第16章　データ前処理とパイプライン</h1><p class="lead">生のデータを、安全かつ効率的にモデルへ届ける</p></header><blockquote><b>この章の到達目標</b><ul><li>欠損・数値・カテゴリの前処理を選択し、リークを防ぐ。</li><li>Kerasの前処理レイヤーとtf.dataを組み合わせる。</li><li>データ供給の性能とメモリを考慮して学習・推論を実装する。</li></ul></blockquote><nav class="section-toc"><b>本章の目次</b><ol><li><a href="#s1">16.1 前処理の目的とデータリーク</a></li><li><a href="#s2">16.2 欠損値・異常値と数値特徴量</a></li><li><a href="#s3">16.3 標準化・正規化と分布の変換</a></li><li><a href="#s4">16.4 カテゴリ変数と語彙の管理</a></li><li><a href="#s5">16.5 Keras前処理レイヤーとadapt</a></li><li><a href="#s6">16.6 tf.data.Datasetの基本操作</a></li><li><a href="#s7">16.7 map・shuffle・batchの順序</a></li><li><a href="#s8">16.8 cache・prefetchとパフォーマンス</a></li><li><a href="#s9">16.9 ファイルから大規模データを読み込む</a></li><li><a href="#s10">16.10 実践：表形式データの学習・推論パイプライン</a></li><li><a href="#s11">16.11 まとめと確認問題</a></li></ol></nav><p>コード16.1〜16.9は同じNotebookで順に実行してください。実践コードと発展演習は独立して実行できます。</p><hr/><h2 id="s1">16.1 前処理の目的とデータリーク</h2><p>モデルは数値テンソルを処理します。しかし現実のデータには欠損、文字列、異なる単位、壊れたファイルが含まれます。前処理とは、データをモデルが扱える表現へ変換することです。さらに、データパイプラインは変換済みの標本を適切な順序と速度でモデルへ供給します。</p><p>最も重要な原則は、<strong>データから学ぶ前処理は訓練集合だけで学習する</strong>ことです。平均、中央値、語彙、カテゴリ頻度などはモデルの重みと同様に学習された状態です。検証・テスト集合からそれらを取得すれば、未知データへの評価が楽観的になる可能性があります。</p><figure><svg aria-label="分割と前処理の正しい順序" role="img" viewbox="0 0 640 104" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="64" rx="6" stroke="#7395ad" width="144.5" x="10.0" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="44">生データ</text><path d="M154.5 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="64" rx="6" stroke="#7395ad" width="144.5" x="168.5" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="44">分割</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="64">train / val / test</text><path d="M313.0 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="64" rx="6" stroke="#7395ad" width="144.5" x="327.0" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="44">trainでfit</text><path d="M471.5 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="64" rx="6" stroke="#7395ad" width="144.5" x="485.5" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="44">全集合に</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="64">同じ変換</text></svg><figcaption>図16.1　分割と前処理の正しい順序</figcaption></figure><div class="table-wrap"><table><thead><tr><th>処理</th><th>学習が必要か</th><th>注意</th></tr></thead><tbody><tr><td>単位変換（cm→m）</td><td>不要</td><td>固定ルール</td></tr><tr><td>中央値補完</td><td>必要</td><td>訓練集合の中央値</td></tr><tr><td>標準化</td><td>必要</td><td>訓練集合の平均・分散</td></tr><tr><td>カテゴリ語彙</td><td>必要</td><td>未知カテゴリを扱う</td></tr><tr><td>画像リサイズ</td><td>不要</td><td>補間法と形状を統一</td></tr></tbody></table></div><p>交差検証ではfoldごとに前処理器を作り直します。同一人物の記録や未来の情報が混在しないよう、第6章のGroup分割・時系列分割も適用します。IDは提出との対応に保持し、意味のない識別子を特徴量に混ぜないようにします。</p><hr/><h2 id="s2">16.2 欠損値・異常値と数値特徴量</h2><p>欠損はゼロと同義ではありません。欠損が測定失敗によるものか、そもそも測定対象でなかったのかによって意味が異なります。MCAR（完全にランダム）、MAR（観測済み情報に依存）、MNAR（未観測値にも依存）という区別は、補完の限界を考える手がかりになります。観測データだけでは欠損機構を確定できない場合もあります。</p><p>中央値補完は極端な値の影響を受けにくい方法です。欠損自体が有用な情報なら、欠損フラグを追加します。全欠損列は別途扱い、無限大や単位の不整合も調べます。外れ値は入力ミスとは限りません。削除やクリッピングは業務上の意味と検証結果に基づいて決めます。</p><div class="code-head"><span>コード16.1　中央値補完と欠損フラグ</span><button data-copy="code1" type="button">コピー</button></div><pre><code id="code1">import numpy as np
+import pandas as pd
+train = pd.DataFrame({'area': [40., 60., np.nan, 100.]})
+valid = pd.DataFrame({'area': [np.nan, 200.]})
+median = train['area'].median()
+def impute(df):
+    out = df.copy()
+    out['area_missing'] = out['area'].isna().astype('float32')
+    out['area'] = out['area'].fillna(median)
+    return out
+print(impute(train))
+print(impute(valid))
+assert impute(valid).iloc[0]['area'] == 60</code></pre><figure><svg aria-label="欠損値の補完と情報の保持" role="img" viewbox="0 0 640 104" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="64" rx="6" stroke="#7395ad" width="197.33333333333334" x="10.0" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="108.66666666666667" y="44">面積  NaN</text><path d="M207.33333333333334 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="64" rx="6" stroke="#7395ad" width="197.33333333333334" x="221.33333333333334" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="44">訓練中央値</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="64">60</text><path d="M418.6666666666667 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="64" rx="6" stroke="#7395ad" width="197.33333333333334" x="432.6666666666667" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="44">面積 60</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="64">欠損フラグ 1</text></svg><figcaption>図16.2　欠損値の補完と情報の保持</figcaption></figure><hr/><h2 id="s3">16.3 標準化・正規化と分布の変換</h2><p>特徴量のスケールが大きく異なると、勾配の大きさや最適化の条件が悪化する場合があります。標準化は平均を引いて標準偏差で割る操作です。Min-Max正規化は訓練範囲を通常0〜1に写します。L2正規化は非ゼロの標本ベクトルの長さを1にする操作であり、これらは別物です。</p>$$z=\frac{x-\mu}{\sigma},\qquad x'=\frac{x-x_{\min}}{x_{\max}-x_{\min}}$$<p>定数列では分母が0になります。StandardScalerは分散ゼロの特徴量のスケールを1とし、平均を引きます。MinMaxScalerもゼロの範囲を安全に扱います。検証値が訓練範囲を超えればMin-Max変換後も0〜1を超えることがあります。歪みの大きい非負値にはlog1pも候補ですが、変換の有効性は検証で確認します。</p><div class="code-head"><span>コード16.2　標準化とMin-Max変換</span><button data-copy="code2" type="button">コピー</button></div><pre><code id="code2">from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
+X = np.array([[10.], [20.], [30.]])
+V = np.array([[40.]])
+for scaler in [StandardScaler(), MinMaxScaler(), RobustScaler()]:
+    scaler.fit(X)
+    print(type(scaler).__name__, scaler.transform(X).ravel(),
+          scaler.transform(V).ravel())
+assert np.isclose(MinMaxScaler().fit(X).transform(V)[0,0], 1.5)</code></pre><figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 154" role="img" aria-label="元の数値から標準化とMin-Max正規化に分岐"><rect x="10" y="45" width="210" height="64" rx="6" fill="#e4edf4" stroke="#7395ad"/><text x="115" y="69" text-anchor="middle" font-size="14" fill="#2f5b7c">10, 20, 30</text><text x="115" y="89" text-anchor="middle" font-size="14" fill="#2f5b7c">元の値</text><path d="M220 77 H252 V38 H274 l-5 -4 m5 4 l-5 4 M252 77 V116 H274 l-5 -4 m5 4 l-5 4" stroke="#7395ad" fill="none"/><rect x="274" y="6" width="356" height="64" rx="6" fill="#dcebe5" stroke="#7395ad"/><text x="452" y="30" text-anchor="middle" font-size="14" fill="#2f5b7c">−1.225, 0, 1.225</text><text x="452" y="50" text-anchor="middle" font-size="14" fill="#2f5b7c">標準化</text><rect x="274" y="84" width="356" height="64" rx="6" fill="#f4e7d7" stroke="#7395ad"/><text x="452" y="108" text-anchor="middle" font-size="14" fill="#2f5b7c">0, 0.5, 1</text><text x="452" y="128" text-anchor="middle" font-size="14" fill="#2f5b7c">Min-Max</text></svg><figcaption>図16.3　同じ元の値に対する標準化とMin-Max正規化の比較（両者は別々の変換）</figcaption></figure><div class="table-wrap"><table><thead><tr><th>方法</th><th>用途</th><th>注意</th></tr></thead><tbody><tr><td>StandardScaler</td><td>一般的な連続特徴量</td><td>外れ値の影響</td></tr><tr><td>MinMaxScaler</td><td>範囲をそろえる</td><td>未知値は範囲外になり得る</td></tr><tr><td>RobustScaler</td><td>中央値と四分位範囲</td><td>極端な値は残る</td></tr><tr><td>log1p</td><td>右に歪んだ非負値</td><td>元の単位と逆変換を意識</td></tr></tbody></table></div><hr/><h2 id="s4">16.4 カテゴリ変数と語彙の管理</h2><p>色や地域など順序のないカテゴリを整数に置き換え、その整数を連続値として入力すると、存在しない大小関係をモデルに仮定させます。One-hotはカテゴリごとに独立した成分を割り当て、Embeddingは整数IDから学習可能なベクトルを取り出します。順序尺度に整数を用いる場合も、間隔が等しいとは限りません。</p><div class="table-wrap"><table><thead><tr><th>カテゴリ</th><th>ID</th><th>One-hot（未知・A・B）</th></tr></thead><tbody><tr><td>未知</td><td>0</td><td>(1,0,0)</td></tr><tr><td>A</td><td>1</td><td>(0,1,0)</td></tr><tr><td>B</td><td>2</td><td>(0,0,1)</td></tr></tbody></table></div><figure><svg aria-label="カテゴリの表現" role="img" viewbox="0 0 640 104" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="64" rx="6" stroke="#7395ad" width="197.33333333333334" x="10.0" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="108.66666666666667" y="44">文字列 A</text><path d="M207.33333333333334 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="64" rx="6" stroke="#7395ad" width="197.33333333333334" x="221.33333333333334" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="44">語彙 lookup</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="64">ID 1</text><path d="M418.6666666666667 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="64" rx="6" stroke="#7395ad" width="197.33333333333334" x="432.6666666666667" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="44">One-hot または</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="64">Embedding</text></svg><figcaption>図16.4　カテゴリの表現</figcaption></figure><div class="code-head"><span>コード16.3　Kerasの語彙変換</span><button data-copy="code3" type="button">コピー</button></div><pre><code id="code3">import tensorflow as tf
+from tensorflow import keras
+lookup = keras.layers.StringLookup(output_mode='one_hot',
+                                  vocabulary=['A', 'B'])
+print(lookup(tf.constant(['A', 'B', 'C'])).numpy())
+# C は未知カテゴリ（OOV）</code></pre><p>高カーディナリティのカテゴリではOne-hotの次元が大きくなります。Embeddingやハッシュ変換も候補です。Target Encodingは目的変数を使うため、訓練内でもOOF方式で計算するなど特別なリーク対策が必要です（第29章）。</p><hr/><h2 id="s5">16.5 Keras前処理レイヤーとadapt</h2><p>前処理をモデルに含めると、学習時と推論時で同じ変換を再利用しやすくなります。Normalizationは訓練データの平均・分散を、StringLookupは語彙を保持します。adaptはfitの前に行い、検証データで再実行しません。文字列を扱う処理はCPU側に置く選択肢もあります。</p><div class="code-head"><span>コード16.4　前処理を含む複数入力モデル</span><button data-copy="code4" type="button">コピー</button></div><pre><code id="code4">num_train = np.array([[10.], [20.], [30.]], dtype='float32')
+cat_train = tf.constant([['A'], ['B'], ['A']])
+norm = keras.layers.Normalization(axis=-1)
+norm.adapt(num_train)
+lookup = keras.layers.StringLookup(output_mode='one_hot')
+lookup.adapt(tf.reshape(cat_train, [-1]))
+a = keras.Input((1,), name='num')
+b = keras.Input((1,), dtype='string', name='cat')
+x = keras.layers.Concatenate()([norm(a), lookup(b)])
+out = keras.layers.Dense(1)(x)
+pre_model = keras.Model({'num': a, 'cat': b}, out)
+pre_model.compile(optimizer='adam', loss='mse', jit_compile=False)
+print(pre_model({'num': tf.constant([[40.]]), 'cat': tf.constant([['C']])}))</code></pre><p>欠損補完などをモデル外で行う場合は、その状態と列順を別途保存します。文字列演算などXLA非対応の処理を含むモデルではjit_compile=Falseを明示する方法があります。画像のランダム拡張レイヤーは通常訓練時のみ有効になります。前処理レイヤーのNormalizationと学習中に統計を更新するBatchNormalizationは異なる機能です。</p><hr/><h2 id="s6">16.6 tf.data.Datasetの基本操作</h2><p>Datasetは要素の列を表し、変換をつなぐことでデータ供給の処理を定義します。多くの処理は反復時に実行されます。要素はテンソルだけでなく辞書やタプルにもできます。Kerasでは通常 (入力, 正解) または (入力, 正解, sample_weight) の構造を渡します。</p><div class="code-head"><span>コード16.5　Datasetの作成と構造の確認</span><button data-copy="code5" type="button">コピー</button></div><pre><code id="code5">features = tf.range(10, dtype=tf.float32)[:, None]
+targets = 2 * features + 1
+ds = tf.data.Dataset.from_tensor_slices((features, targets))
+print(ds.element_spec)
+for xb, yb in ds.batch(4):
+    print(xb.shape, yb.shape)
+# (4,1), (4,1), (2,1)
+print(ds.cardinality().numpy())</code></pre><figure><svg aria-label="10標本を4標本ずつまとめる" role="img" viewbox="0 0 640 104" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="64" rx="6" stroke="#7395ad" width="197.33333333333334" x="10.0" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="108.66666666666667" y="44">標本 0–3</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="108.66666666666667" y="64">Batch 1</text><path d="M207.33333333333334 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="64" rx="6" stroke="#7395ad" width="197.33333333333334" x="221.33333333333334" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="44">標本 4–7</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="64">Batch 2</text><path d="M418.6666666666667 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="64" rx="6" stroke="#7395ad" width="197.33333333333334" x="432.6666666666667" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="44">標本 8–9</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="64">Batch 3</text></svg><figcaption>図16.5　10標本を4標本ずつまとめる</figcaption></figure><div class="table-wrap"><table><thead><tr><th>操作</th><th>役割</th></tr></thead><tbody><tr><td>from_tensor_slices</td><td>配列の先頭軸を標本として切り出す</td></tr><tr><td>map</td><td>各要素を変換</td></tr><tr><td>filter</td><td>条件に合う要素を残す</td></tr><tr><td>shuffle</td><td>バッファ内からランダム抽出</td></tr><tr><td>batch</td><td>複数要素をまとめる</td></tr><tr><td>repeat</td><td>データを繰り返す</td></tr><tr><td>take</td><td>先頭の指定数だけ取得</td></tr><tr><td>prefetch</td><td>後続要素を先読み</td></tr></tbody></table></div><p>cardinalityは不明・無限の場合もあります。repeat()を回数指定なしで使うと無限列になるため、fitでsteps_per_epochを設定します。drop_remainder=Trueは固定shapeが必要な場合に有用ですが、検証・推論では標本を落とさないようにします。</p><hr/><h2 id="s7">16.7 map・shuffle・batchの順序</h2><p>処理の順序によって意味が変わります。例えばbatch後のshuffleはバッチ単位の並べ替えです。shuffleのbuffer_sizeが標本数より小さければ完全な全体シャッフルではありません。訓練時は通常各エポックで並びを変え、検証・推論では順序を保ちます。</p><div class="code-head"><span>コード16.6　変換の順序とシャッフル</span><button data-copy="code6" type="button">コピー</button></div><pre><code id="code6">def transform(x, y):
+    return tf.cast(x, tf.float32) / 10., y
+train_ds = (ds.map(transform, num_parallel_calls=tf.data.AUTOTUNE)
+            .shuffle(10, seed=42, reshuffle_each_iteration=True)
+            .batch(4).prefetch(tf.data.AUTOTUNE))
+for xb, yb in train_ds.take(1):
+    print(xb.numpy(), yb.numpy())</code></pre><figure><svg aria-label="訓練パイプラインの一例" role="img" viewbox="0 0 640 104" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="64" rx="6" stroke="#7395ad" width="112.8" x="10.0" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="66.4" y="44">読み込み</text><path d="M122.8 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="64" rx="6" stroke="#7395ad" width="112.8" x="136.8" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="193.20000000000002" y="44">map</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="193.20000000000002" y="64">決定的変換</text><path d="M249.60000000000002 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="64" rx="6" stroke="#7395ad" width="112.8" x="263.6" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="44">shuffle</text><path d="M376.40000000000003 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="64" rx="6" stroke="#7395ad" width="112.8" x="390.4" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="446.79999999999995" y="44">batch</text><path d="M503.2 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="64" rx="6" stroke="#7395ad" width="112.8" x="517.2" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="573.6" y="44">prefetch</text></svg><figcaption>図16.6　訓練パイプラインの一例</figcaption></figure><p>可変長の系列は通常のbatchでまとめられない場合があります。padded_batchで長さをそろえ、マスクをモデルに渡す設計を行います。埋めた値を実データとして学習させないことが重要です。</p><div class="code-head"><span>コード16.7　可変長系列のパディング</span><button data-copy="code7" type="button">コピー</button></div><pre><code id="code7">seq_ds = tf.data.Dataset.from_generator(
+    lambda: iter([[1,2], [3,4,5], [6]]),
+    output_signature=tf.TensorSpec((None,), tf.int32))
+for tokens in seq_ds.padded_batch(2, padding_values=0):
+    mask = tokens != 0
+    print(tokens.numpy(), mask.numpy())</code></pre><hr/><h2 id="s8">16.8 cache・prefetchとパフォーマンス</h2><p>GPUでモデルを計算していても、CPU側の読み込みや変換が間に合わなければ待機が発生します。prefetchは次のバッチの準備と現在の学習を重ね、mapの並列化は変換を同時に実行します。cacheは決定的で高価な変換を再利用する手段です。ただしメモリやディスクの容量を消費します。</p><figure><svg aria-label="先読みの時間比較" role="img" viewbox="0 0 640 230" xmlns="http://www.w3.org/2000/svg"><g fill="#2f5b7c" font-size="14"><text x="16" y="24">逐次処理（模式図）</text><text x="16" y="122">先読みあり（模式図）</text></g><rect fill="#e4edf4" height="29" rx="4" stroke="#7395ad" width="80" x="110" y="38"></rect><text font-size="12" text-anchor="middle" x="150.0" y="57">準備1</text><rect fill="#dcebe5" height="29" rx="4" stroke="#7395ad" width="120" x="190" y="70"></rect><text font-size="12" text-anchor="middle" x="250.0" y="89">学習1</text><rect fill="#e4edf4" height="29" rx="4" stroke="#7395ad" width="80" x="310" y="38"></rect><text font-size="12" text-anchor="middle" x="350.0" y="57">準備2</text><rect fill="#dcebe5" height="29" rx="4" stroke="#7395ad" width="120" x="390" y="70"></rect><text font-size="12" text-anchor="middle" x="450.0" y="89">学習2</text><rect fill="#e4edf4" height="29" rx="4" stroke="#7395ad" width="80" x="110" y="135"></rect><text font-size="12" text-anchor="middle" x="150.0" y="154">準備1</text><rect fill="#dcebe5" height="29" rx="4" stroke="#7395ad" width="120" x="190" y="167"></rect><text font-size="12" text-anchor="middle" x="250.0" y="186">学習1</text><rect fill="#e4edf4" height="29" rx="4" stroke="#7395ad" width="80" x="190" y="135"></rect><text font-size="12" text-anchor="middle" x="230.0" y="154">準備2</text><rect fill="#dcebe5" height="29" rx="4" stroke="#7395ad" width="120" x="310" y="167"></rect><text font-size="12" text-anchor="middle" x="370.0" y="186">学習2</text><path d="M110 215 H560 l-7 -4 m7 4 l-7 4" fill="none" stroke="#7395ad"></path><text font-size="12" x="570" y="220">時間</text></svg><figcaption>図16.7　先読みで処理を重ねる（実測値ではない）</figcaption></figure><p>cacheをランダム拡張の後に置くと、最初の反復で生成した拡張結果を繰り返し利用してしまいます。ただしキャッシュを確定させるには入力Datasetを最後まで反復する必要があります。毎エポック拡張を変えたい場合は決定的変換の後、ランダム変換の前にcacheを配置します。shuffleもcacheの後に置けば各エポックで順序を変えられます。ディスクキャッシュは前処理やfoldが変わるたびに別ファイルにします。</p><div class="code-head"><span>コード16.8　キャッシュとランダム変換</span><button data-copy="code8" type="button">コピー</button></div><pre><code id="code8">def augment(x, y):
+    return x + tf.random.normal(tf.shape(x), stddev=0.01), y
+# 小さな人工データでのみ例示。実データにノイズを加える妥当性は別途検証する
+cached = ds.map(transform).cache()
+fast_ds = (cached.shuffle(10, seed=42)
+           .map(augment, num_parallel_calls=tf.data.AUTOTUNE)
+           .batch(4).prefetch(tf.data.AUTOTUNE))
+for xb, yb in fast_ds:
+    pass</code></pre><p>バッファ容量の概算は「要素数×1要素のバイト数」です。224×224×3のfloat32画像を1,000枚キャッシュすると約574 MiB（602,112,000バイト）（管理領域を除く）になります。prefetchをbatch後に置けばバッファの単位はバッチです。AUTOTUNEは便利ですがメモリ制限を保証するものではありません。実行時間はウォームアップ後に同じ標本数で比較し、TensorFlow Profilerで入力待ちを調べます。</p><hr/><h2 id="s9">16.9 ファイルから大規模データを読み込む</h2><p>from_tensor_slicesは手元の配列から作るため、巨大なデータを全部読み込む方法には向きません。画像はファイル名だけを保持し、必要なときにデコードします。CSVはTextLineDatasetやmake_csv_dataset、バイナリの大量データにはTFRecordDatasetも候補です。複数ファイルをinterleaveで読み込むとI/Oの待ち時間を減らせる場合があります。</p><div class="code-head"><span>コード16.9　画像ファイルの遅延読み込み（手元のJPEGを指定）</span><button data-copy="code9" type="button">コピー</button></div><pre><code id="code9">from pathlib import Path
+paths = sorted(str(p) for p in Path('images').glob('*.jpg'))
+if paths:
+    def decode(path):
+        image = tf.io.decode_jpeg(tf.io.read_file(path), channels=3)
+        image = tf.image.convert_image_dtype(image, tf.float32)
+        return tf.image.resize(image, (224, 224))
+    image_ds = (tf.data.Dataset.from_tensor_slices(paths)
+                .map(decode, num_parallel_calls=tf.data.AUTOTUNE)
+                .batch(16).prefetch(tf.data.AUTOTUNE))
+    print(next(iter(image_ds)).shape)</code></pre><p>破損ファイルは事前に調査し、除外したIDと件数を記録します。推論で黙って除外すると提出行がずれます。キャッシュの前に画像をfloat32化するとメモリを多く消費するため、変換順も計測対象にします。</p><hr/><h2 id="s10">16.10 実践：表形式データの学習・推論パイプライン</h2><p>住宅価格を模した人工データで、数値欠損を含む回帰（未知カテゴリにも対応可能）を実装します。訓練集合だけで中央値・標準化・語彙を学習し、検証・テストは順序を保ちます。価格の単位は任意の人工単位であり、実際の住宅市場を表すものではありません。次のコードは独立して実行できます。</p><div class="code-head"><span>コード16.10　実践の完全なコード</span><button data-copy="code10" type="button">コピー</button></div><pre><code id="code10">import json
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from tensorflow import keras
+from sklearn.model_selection import train_test_split
+keras.utils.set_random_seed(42)
+rng = np.random.default_rng(42)
+n = 1000
+area = rng.uniform(20, 120, n)
+age = rng.uniform(0, 40, n)
+region = rng.choice(['A','B','C'], n)
+y = 2*area - age + 20*(region == 'A') + rng.normal(0, 8, n)
+df = pd.DataFrame({'id': np.arange(n), 'area': area,
+                   'age': age, 'region': region, 'target': y})
+df.loc[rng.choice(n, 80, replace=False), 'area'] = np.nan
+tr, rest = train_test_split(df, test_size=.4, random_state=42)
+va, te = train_test_split(rest, test_size=.5, random_state=42)
+cols = ['area', 'age']
+med = tr[cols].median()
+def inputs(frame):
+    numeric = frame[cols].fillna(med).to_numpy(dtype='float32')
+    flags = frame[cols].isna().to_numpy(dtype='float32')
+    return {'num': np.concatenate([numeric, flags], axis=1),
+            'region': tf.constant(frame['region'].fillna('__MISSING__').astype(str).tolist())[:, None]}
+xt = inputs(tr)
+norm = keras.layers.Normalization(axis=-1)
+norm.adapt(xt['num'][:, :2])
+lookup = keras.layers.StringLookup(output_mode='one_hot')
+lookup.adapt(tf.reshape(xt['region'], [-1]))
+a = keras.Input((4,), name='num')
+b = keras.Input((1,), dtype='string', name='region')
+x = keras.layers.Concatenate()([norm(a[:, :2]), a[:, 2:], lookup(b)])
+x = keras.layers.Dense(32, activation='relu')(x)
+x = keras.layers.Dense(16, activation='relu')(x)
+model = keras.Model({'num': a, 'region': b}, keras.layers.Dense(1)(x))
+model.compile(optimizer=keras.optimizers.Adam(.01), loss='mse',
+              metrics=['mae'], jit_compile=False)
+def dataset(frame, training=False):
+    d = tf.data.Dataset.from_tensor_slices((inputs(frame),
+            frame['target'].to_numpy(dtype='float32')[:, None]))
+    if training:
+        d = d.shuffle(len(frame), seed=42)
+    return d.batch(32).prefetch(tf.data.AUTOTUNE)
+run = Path('run16'); run.mkdir(exist_ok=True)
+model.fit(dataset(tr, True), validation_data=dataset(va), epochs=80,
+          callbacks=[keras.callbacks.EarlyStopping(patience=8, restore_best_weights=True)], verbose=0)
+print(model.evaluate(dataset(te), return_dict=True))
+model.save(run/'model.keras')
+(run/'preprocessing.json').write_text(json.dumps({'columns': cols,
+    'medians': med.to_dict(), 'region_missing': '__MISSING__'}), encoding='utf-8')
+# 予測用Datasetにはラベルを含めない
+pred_ds = tf.data.Dataset.from_tensor_slices(inputs(te)).batch(32).prefetch(tf.data.AUTOTUNE)
+pred = model.predict(pred_ds, verbose=0).ravel()
+assert len(pred) == len(te) and np.isfinite(pred).all()
+pd.DataFrame({'id': te['id'].to_numpy(), 'target': pred}).to_csv(run/'submission.csv', index=False)</code></pre><figure><svg aria-label="実践で保存する情報" role="img" viewbox="0 0 640 104" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="64" rx="6" stroke="#7395ad" width="144.5" x="10.0" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="44">訓練集合</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="64">中央値・語彙</text><path d="M154.5 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="64" rx="6" stroke="#7395ad" width="144.5" x="168.5" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="44">学習済み</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="64">model.keras</text><path d="M313.0 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="64" rx="6" stroke="#7395ad" width="144.5" x="327.0" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="44">前処理設定</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="64">JSON</text><path d="M471.5 52 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="64" rx="6" stroke="#7395ad" width="144.5" x="485.5" y="20"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="44">ID付き予測</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="64">CSV</text></svg><figcaption>図16.8　実践で保存する情報（語彙・標準化統計はモデル内、中央値はJSON）</figcaption></figure><p>実際のコンペではsample_submissionのIDに合わせて結合し、欠損・重複・件数を検証します。モデル外の補完設定を読み戻し、保存前後の予測が一致することも確認しましょう。未知カテゴリを含む新規行を入力してエラーにならないか確認するのも有用です。コードは構文検証済みですがTensorFlowによる学習実測値は掲載していません。</p><hr/><h2 id="s11">16.11 まとめと確認問題</h2><p>前処理は学習された状態を管理する処理であり、パイプラインはデータ供給の設計です。訓練集合のみで状態を学習し、検証・推論では同じ変換を使うことが基本です。効率化は正しさを確認してから行います。</p><details id="ex-1"><summary>問　検証集合で標準化の平均を計算してよいか</summary><p>不可。訓練集合で求めた平均・分散を使用する。</p></details><details id="ex-2"><summary>問　欠損値をゼロで補完する際の注意は</summary><p>ゼロが実測値と区別できない場合がある。欠損フラグや別の補完を検討する。</p></details><details id="ex-3"><summary>問　未知カテゴリにはどう対応するか</summary><p>OOV用IDなどを用意し、語彙を検証・テストから追加しない。</p></details><details id="ex-4"><summary>問　100件を32件ずつbatchすると何バッチか</summary><p>4バッチ。最後は4件。drop_remainder=Trueなら3バッチ。</p></details><details id="ex-5"><summary>問　batch後のshuffleは何を並べ替えるか</summary><p>バッチ単位。標本単位で混ぜたいならbatch前にshuffleする。</p></details><details id="ex-6"><summary>問　cacheをランダム拡張の後に置くとどうなるか</summary><p>キャッシュが確定すれば最初の拡張結果が固定される。毎回変えたいならcacheの後に拡張する。</p></details><details id="ex-7"><summary>問　prefetchは何を改善するか</summary><p>データ準備とモデル計算を重ねて待ち時間を減らす。必ず高速化するとは限らない。</p></details><details id="ex-8"><summary>問　推論Datasetをshuffleしない理由は</summary><p>予測と元のIDの対応を保つため。並列変換でも順序を保証する設定を維持する。</p></details><h3>発展演習：前処理のリークを検出する</h3><p>訓練値10, 20, 30と検証値100を用いて、訓練のみで標準化する場合と全データで標準化する場合を比較してください。検証値を変更して訓練側の変換が変化しないことも検証しましょう。</p><details id="ex-9"><summary>解答・実装例</summary><div class="code-head"><span>コード16.11　リークの検証</span><button data-copy="code11" type="button">コピー</button></div><pre><code id="code11">from sklearn.preprocessing import StandardScaler
+import numpy as np
+X = np.array([[10.], [20.], [30.]])
+V = np.array([[100.]])
+safe = StandardScaler().fit(X)
+leaky = StandardScaler().fit(np.vstack([X, V]))
+print(safe.mean_, leaky.mean_)  # 20, 40
+before = safe.transform(X)
+_ = safe.transform(V * 2)
+np.testing.assert_allclose(before, safe.transform(X))
+assert not np.allclose(before, leaky.transform(X))
+print("safe:", before.ravel())
+print("leaky:", leaky.transform(X).ravel())</code></pre><p>独立検算：訓練のみの平均20、標準偏差√(200/3)≈8.16497。全体でfitすると平均40、標準偏差√1250≈35.35534。訓練値の標準化結果はそれぞれ (−1.224745, 0, 1.224745) と (−0.848528, −0.565685, −0.282843) です。</p></details><h3>参考資料</h3><p><a href="https://www.tensorflow.org/guide/data">tf.data guide</a>・<a href="https://www.tensorflow.org/guide/data_performance?hl=ja">tf.data APIによるパフォーマンスの改善</a>・<a href="https://keras.io/api/layers/preprocessing_layers/">Keras前処理レイヤー</a>・<a href="https://keras.io/api/layers/preprocessing_layers/categorical/string_lookup/">StringLookup</a>。</p><p>次章では独自のレイヤー・損失関数・学習処理を実装します。</p><nav aria-label="章送り" class="chap-nav"><a href="chapter15.html"><span class="dir">◀ 前章</span><span class="ttl">第15章　モデルの学習・評価・推論</span></a><a href="chapter17.html"><span class="dir">次章 ▶</span><span class="ttl">第17章　カスタム学習処理の実装</span></a></nav><div class="toc-back"><a href="#">章の先頭へ戻る</a>　<a href="index.html">全体目次へ</a></div></main><script>document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);b.textContent='コピー済み';}catch(e){b.textContent='選択してコピーしてください';}}));</script></body></html>

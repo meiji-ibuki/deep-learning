@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+
+<html lang="ja"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>付録I 実践用コードテンプレート｜深層学習の基礎と実践</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&amp;family=Shippori+Mincho:wght@500;600;700&amp;family=Zen+Kaku+Gothic+Antique:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="style.css" rel="stylesheet"/><script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async="" src="https://cdn.jsdelivr.net/npm/mathjax@3.2.1/es5/tex-svg-full.js"></script></head><body><div class="topbar"><div class="inner"><a class="book" href="index.html">深層学習の基礎と実践</a><span>付録I</span></div></div><main class="page"><header class="chapter-head"><p class="eyebrow">Appendix I</p><h1>付録I　実践用コードテンプレート</h1><p class="lead">再利用できる学習・評価・推論の出発点</p></header><nav class="section-toc"><b>付録の目次</b><ol><li><a href="#s1">I.1 テンプレートの使い方と実験設計</a></li><li><a href="#s2">I.2 表形式分類：OOFとFold平均</a></li><li><a href="#s3">I.3 表形式回帰：前処理をモデルに含める</a></li><li><a href="#s4">I.4 画像分類：CNNとデータ拡張</a></li><li><a href="#s5">I.5 自然言語処理：語彙とマスキング</a></li><li><a href="#s6">I.6 時系列：予測起点と時間順分割</a></li><li><a href="#s7">I.7 セグメンテーション：画像とマスク</a></li><li><a href="#s8">I.8 ハイパーパラメータ探索</a></li><li><a href="#s9">I.9 アンサンブル・OOF評価・提出</a></li><li><a href="#s10">I.10 実験管理・再現性</a></li><li><a href="#s11">I.11 実コンペへの移植チェックリスト</a></li></ol></nav><h2 id="s1">I.1　テンプレートの使い方と実験設計</h2><p>各スクリプトは独立した出発点である。TensorFlow 2系・Keras 3を想定する。仮想環境で <code>python -m pip install tensorflow numpy pandas scikit-learn keras-tuner</code> を実行し、バージョンを記録する。Kaggleでは既存環境を確認し、不用意な更新を避ける。人工データは動作確認用で、実コンペでは入力と分割を置き換える。</p><div class="table-wrap"><table><thead><tr><th>タスク</th><th>テンプレート</th><th>分割・評価</th></tr></thead><tbody><tr><td>表形式</td><td>tabular_cv.py</td><td>Stratified K-Fold / AUC</td></tr><tr><td>回帰</td><td>regression.py</td><td>固定検証 / MAE</td></tr><tr><td>画像</td><td>image.py</td><td>層化分割 / Accuracy</td></tr><tr><td>文章</td><td>text.py</td><td>層化分割 / Accuracy</td></tr><tr><td>時系列</td><td>forecast.py</td><td>時間順 / MAE</td></tr><tr><td>セグメンテーション</td><td>segmentation.py</td><td>画像単位 / IoU</td></tr><tr><td>探索</td><td>tune.py</td><td>固定検証 / val_loss</td></tr><tr><td>融合・提出</td><td>ensemble.py</td><td>OOF・ID照合</td></tr></tbody></table></div><p>訓練データ→内側検証（停止・調整）→外側検証（OOF）→最終テスト、の順に情報を隔離する。テストを見て設定を変えない。固定分割のテンプレートでは外側Foldを設けず、停止・調整用の検証集合と独立テスト集合を分離する。関連：<a href="chapter22.html">第22章</a>・<a href="chapter39.html">第39章</a>。</p><h2 id="s2">I.2　表形式分類：OOFとFold平均</h2><p>数値特徴量の欠損補完・標準化は各Foldの内側訓練のみでfitする。外側検証は停止に使わない。実データで同一顧客が複数行ある場合はGroup分割に変更する。カテゴリ変数は第29章の語彙・Embeddingを追加する。</p><p><a download="" href="templates/tabular_cv.py">Pythonファイル：tabular_cv.py</a></p><div class="code-head"><span>コードI.1　tabular_cv.py</span><button data-copy="code1" type="button">コピー</button></div><pre><code id="code1">import numpy as np
+import tensorflow as tf
+from sklearn.datasets import make_classification
+from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import make_pipeline
+from sklearn.metrics import roc_auc_score
+from pathlib import Path
+X, y = make_classification(n_samples=1200, n_features=16, random_state=42)
+X, test, y, yt = train_test_split(X, y, test_size=.2, stratify=y, random_state=42)
+oof = np.full(len(y), np.nan)
+preds = []
+for fold, (tr, va) in enumerate(StratifiedKFold(5, shuffle=True, random_state=42).split(X,y)):
+    a,b = train_test_split(tr, test_size=.2, stratify=y[tr], random_state=fold)
+    prep = make_pipeline(SimpleImputer(strategy='median'), StandardScaler())
+    xa = prep.fit_transform(X[a]).astype('float32')
+    tf.keras.backend.clear_session()
+    tf.keras.utils.set_random_seed(42+fold)
+    model = tf.keras.Sequential([tf.keras.Input((X.shape[1],)),
+        tf.keras.layers.Dense(64, activation='relu'), tf.keras.layers.Dropout(.2),
+        tf.keras.layers.Dense(1, activation='sigmoid')])
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.AUC()])
+    model.fit(xa,y[a],validation_data=(prep.transform(X[b]),y[b]),epochs=30,batch_size=32,
+        callbacks=[tf.keras.callbacks.EarlyStopping(patience=4,restore_best_weights=True)],verbose=0)
+    oof[va] = model.predict(prep.transform(X[va]),verbose=0).ravel()
+    preds.append(model.predict(prep.transform(test),verbose=0).ravel())
+assert np.isfinite(oof).all()
+p = np.mean(preds,axis=0)
+print('OOF AUC',roc_auc_score(y,oof),'test AUC',roc_auc_score(yt,p))
+Path('outputs').mkdir(exist_ok=True)
+np.savez('outputs/tabular.npz',oof=oof,test=p,y=y,yt=yt)
+</code></pre><h2 id="s3">I.3　表形式回帰：前処理をモデルに含める</h2><p>出力は線形、損失はMAE。Normalizationを訓練集合でadaptしてモデルに含めれば推論時の変換漏れを防げる。目的変数の対数変換を採用する場合は評価尺度と逆変換を確認する。</p><p><a download="" href="templates/regression.py">Pythonファイル：regression.py</a></p><div class="code-head"><span>コードI.2　regression.py</span><button data-copy="code2" type="button">コピー</button></div><pre><code id="code2">import tensorflow as tf
+from sklearn.datasets import make_regression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error
+X,y=make_regression(n_samples=1000,n_features=12,noise=10,random_state=42)
+a,t,b,u=train_test_split(X,y,test_size=.2,random_state=42)
+a,v,b,w=train_test_split(a,b,test_size=.2,random_state=43)
+tf.keras.utils.set_random_seed(42)
+norm=tf.keras.layers.Normalization(); norm.adapt(a.astype('float32'))
+m=tf.keras.Sequential([tf.keras.Input((12,)),norm,tf.keras.layers.Dense(64,activation='relu'),tf.keras.layers.Dense(1)])
+m.compile(optimizer='adam',loss='mae')
+m.fit(a,b,validation_data=(v,w),epochs=100,verbose=0,callbacks=[tf.keras.callbacks.EarlyStopping(patience=8,restore_best_weights=True)])
+print('test MAE',mean_absolute_error(u,m.predict(t,verbose=0).ravel()))
+m.save('regression.keras')
+</code></pre><h2 id="s4">I.4　画像分類：CNNとデータ拡張</h2><p>Fashion-MNISTを初回ダウンロードする。実コンペではファイルパスから読み込み、画像の所属個体が分割をまたがないようにする。拡張は訓練時のみ。左右反転が意味を変えるデータでは使用しない。</p><p><a download="" href="templates/image.py">Pythonファイル：image.py</a></p><div class="code-head"><span>コードI.3　image.py</span><button data-copy="code3" type="button">コピー</button></div><pre><code id="code3">import tensorflow as tf
+from sklearn.model_selection import train_test_split
+from tensorflow.keras import layers as L
+tf.keras.utils.set_random_seed(42)
+(x,y),(xt,yt)=tf.keras.datasets.fashion_mnist.load_data()
+a,v,b,w=train_test_split(x,y,test_size=.15,stratify=y,random_state=42)
+def ds(x,y,train=False):
+    d=tf.data.Dataset.from_tensor_slices((x[...,None],y))
+    if train: d=d.shuffle(len(y),seed=42)
+    return d.batch(128).prefetch(tf.data.AUTOTUNE)
+m=tf.keras.Sequential([L.Input((28,28,1)),L.Rescaling(1/255),L.RandomTranslation(.08,.08),L.Conv2D(32,3,activation='relu'),L.MaxPooling2D(),L.Conv2D(64,3,activation='relu'),L.GlobalAveragePooling2D(),L.Dense(10,activation='softmax')])
+m.compile(optimizer='adam',loss='sparse_categorical_crossentropy',metrics=['accuracy'])
+m.fit(ds(a,b,True),validation_data=ds(v,w),epochs=15,callbacks=[tf.keras.callbacks.EarlyStopping(patience=3,restore_best_weights=True)])
+print(m.evaluate(ds(xt,yt)))
+m.save('image.keras')
+</code></pre><h2 id="s5">I.5　自然言語処理：語彙とマスキング</h2><p>IMDbの整数化済みレビューを利用する。0をpaddingとして予約し、Embeddingのmask_zeroをGRUに伝える。生テキストでは訓練集合だけでTextVectorizationをadaptする。日本語では分かち書きやサブワードを選ぶ。</p><p><a download="" href="templates/text.py">Pythonファイル：text.py</a></p><div class="code-head"><span>コードI.4　text.py</span><button data-copy="code4" type="button">コピー</button></div><pre><code id="code4">import tensorflow as tf
+from sklearn.model_selection import train_test_split
+from tensorflow.keras import layers as L
+tf.keras.utils.set_random_seed(42)
+(x,y),(xt,yt)=tf.keras.datasets.imdb.load_data(num_words=10000)
+x=tf.keras.utils.pad_sequences(x,maxlen=200,padding='post',truncating='post')
+xt=tf.keras.utils.pad_sequences(xt,maxlen=200,padding='post',truncating='post')
+a,v,b,w=train_test_split(x,y,test_size=.2,stratify=y,random_state=42)
+m=tf.keras.Sequential([L.Input((200,),dtype='int32'),L.Embedding(10000,64,mask_zero=True),L.Bidirectional(L.GRU(32)),L.Dense(1,activation='sigmoid')])
+m.compile(optimizer='adam',loss='binary_crossentropy',metrics=['accuracy'])
+m.fit(a,b,validation_data=(v,w),epochs=8,batch_size=128,callbacks=[tf.keras.callbacks.EarlyStopping(patience=2,restore_best_weights=True)])
+print(m.evaluate(xt,yt)); m.save('text.keras')
+</code></pre><h2 id="s6">I.6　時系列：予測起点と時間順分割</h2><p>直近48点から次の12点を直接予測する。境界をまたぐ教師窓を除外する。検証・テストで直前の実測値を利用する逐次予測を想定し、固定起点の長期予測とは区別する。</p><p><a download="" href="templates/forecast.py">Pythonファイル：forecast.py</a></p><div class="code-head"><span>コードI.5　forecast.py</span><button data-copy="code5" type="button">コピー</button></div><pre><code id="code5">import numpy as np
+import tensorflow as tf
+from tensorflow.keras import layers as L
+tf.keras.utils.set_random_seed(42)
+rng=np.random.default_rng(42); t=np.arange(2000)
+y=(10+np.sin(t*2*np.pi/24)+.002*t+rng.normal(0,.2,len(t))).astype('float32')
+mu,sigma=y[:1400].mean(),y[:1400].std()
+z=(y-mu)/sigma
+lookback,h=48,12
+starts=np.arange(lookback,len(y)-h+1)
+X=np.array([z[i-lookback:i] for i in starts])[...,None]
+Y=np.array([z[i:i+h] for i in starts])
+a=starts+h&lt;=1400; b=(starts&gt;=1400)&amp;(starts+h&lt;=1700); c=starts&gt;=1700
+m=tf.keras.Sequential([L.Input((lookback,1)),L.GRU(32),L.Dense(h)])
+m.compile(optimizer='adam',loss='mae')
+m.fit(X[a],Y[a],validation_data=(X[b],Y[b]),epochs=30,shuffle=False,verbose=0,callbacks=[tf.keras.callbacks.EarlyStopping(patience=4,restore_best_weights=True)])
+p=m.predict(X[c],verbose=0)
+print('MAE',np.mean(abs(p-Y[c]))*sigma,'seasonal naive',np.mean(abs(X[c,-24:-12,0]-Y[c]))*sigma)
+</code></pre><h2 id="s7">I.7　セグメンテーション：画像とマスク</h2><p>人工円形画像でU-Netの縮小版を構築する。二値マスクの形状は(N,H,W,1)。実画像のリサイズ時はマスクを最近傍補間し、幾何拡張を画像・マスクで同期する。</p><p><a download="" href="templates/segmentation.py">Pythonファイル：segmentation.py</a></p><div class="code-head"><span>コードI.6　segmentation.py</span><button data-copy="code6" type="button">コピー</button></div><pre><code id="code6">import numpy as np
+import tensorflow as tf
+from tensorflow.keras import layers as L
+tf.keras.utils.set_random_seed(42)
+rng=np.random.default_rng(42); yy,xx=np.mgrid[:32,:32]
+mask=np.stack([(xx-a)**2+(yy-b)**2&lt;r*r for a,b,r in zip(rng.integers(8,24,600),rng.integers(8,24,600),rng.integers(3,8,600))])[...,None].astype('float32')
+x=np.clip(mask+rng.normal(0,.3,mask.shape),0,1).astype('float32')
+i=L.Input((32,32,1)); s=L.Conv2D(16,3,padding='same',activation='relu')(i)
+z=L.MaxPooling2D()(s); z=L.Conv2D(32,3,padding='same',activation='relu')(z)
+z=L.UpSampling2D()(z); z=L.Concatenate()([z,s]); z=L.Conv2D(16,3,padding='same',activation='relu')(z)
+m=tf.keras.Model(i,L.Conv2D(1,1,activation='sigmoid')(z))
+m.compile(optimizer='adam',loss='binary_crossentropy',metrics=[tf.keras.metrics.BinaryIoU(target_class_ids=[1],threshold=.5)])
+m.fit(x[:400],mask[:400],validation_data=(x[400:500],mask[400:500]),epochs=12,verbose=0,callbacks=[tf.keras.callbacks.EarlyStopping(patience=3,restore_best_weights=True)])
+print(m.evaluate(x[500:],mask[500:])); m.save('segment.keras')
+</code></pre><h2 id="s8">I.8　ハイパーパラメータ探索</h2><p>探索は開発集合内の検証で行い、最後までテスト集合を隔離する。試行予算と探索範囲を記録する。コンペでOOFを最終評価にするなら、探索を外側Foldの内側に閉じる。</p><p><a download="" href="templates/tune.py">Pythonファイル：tune.py</a></p><div class="code-head"><span>コードI.7　tune.py</span><button data-copy="code7" type="button">コピー</button></div><pre><code id="code7">import tensorflow as tf
+import keras_tuner as kt
+from sklearn.datasets import load_digits
+from sklearn.model_selection import train_test_split
+x,y=load_digits(return_X_y=True); x=x.astype('float32')/16
+x,t,y,u=train_test_split(x,y,test_size=.2,stratify=y,random_state=42)
+a,v,b,w=train_test_split(x,y,test_size=.2,stratify=y,random_state=43)
+tf.keras.utils.set_random_seed(42)
+def build(hp):
+    m=tf.keras.Sequential([tf.keras.Input((64,)),tf.keras.layers.Dense(hp.Choice('width',[32,64,128]),activation='relu'),tf.keras.layers.Dropout(hp.Float('dropout',0,.4,step=.2)),tf.keras.layers.Dense(10,activation='softmax')])
+    m.compile(optimizer=tf.keras.optimizers.Adam(hp.Float('lr',1e-4,1e-2,sampling='log')),loss='sparse_categorical_crossentropy',metrics=['accuracy'])
+    return m
+search=kt.RandomSearch(build,objective='val_loss',max_trials=8,seed=42,directory='tuning',project_name='digits',overwrite=True)
+search.search(a,b,validation_data=(v,w),epochs=20,callbacks=[tf.keras.callbacks.EarlyStopping(patience=3)])
+print(search.get_best_hyperparameters(1)[0].values)
+model=search.get_best_models(1)[0]
+print(model.evaluate(t,u)); model.save('tuned.keras')
+</code></pre><h2 id="s9">I.9　アンサンブル・OOF評価・提出</h2><p>融合対象は同じID・クラス順・予測尺度に揃える。実際のOOF予測は各標本を学習に使っていないモデルから取得する。以下の人工OOF値は正解ラベルから直接生成しているため、実モデルの性能評価には使えない。重みの最適化には別の検証データを使う。この例では重みを事前固定し、人工データでID照合を検証する。実コンペではsample_submissionの列名・順序を厳守する。</p><p><a download="" href="templates/ensemble.py">Pythonファイル：ensemble.py</a></p><div class="code-head"><span>コードI.8　ensemble.py</span><button data-copy="code8" type="button">コピー</button></div><pre><code id="code8">import numpy as np
+import pandas as pd
+from sklearn.metrics import roc_auc_score
+from pathlib import Path
+rng=np.random.default_rng(42)
+y=rng.integers(0,2,100)
+oof1=np.clip(.2+.6*y+rng.normal(0,.25,100),0,1)
+oof2=np.clip(.25+.5*y+rng.normal(0,.2,100),0,1)
+print('illustrative OOF AUC',roc_auc_score(y,.5*oof1+.5*oof2))
+sample=pd.DataFrame({'id':[9,2,5],'target':0.})
+a=pd.DataFrame({'id':[2,5,9],'p1':[.2,.4,.8]})
+b=pd.DataFrame({'id':[5,9,2],'p2':[.6,.7,.3]})
+assert all(df.id.notna().all() and df.id.is_unique for df in (sample,a,b))
+assert set(sample.id)==set(a.id)==set(b.id)
+z=sample[['id']].merge(a,on='id',validate='one_to_one').merge(b,on='id',validate='one_to_one')
+assert z.id.tolist()==sample.id.tolist()
+submission=z.assign(target=.5*z.p1+.5*z.p2)[sample.columns]
+assert np.isfinite(submission.target).all() and submission.target.between(0,1).all()
+Path('outputs').mkdir(exist_ok=True)
+submission.to_csv('outputs/submission.csv',index=False)
+check = pd.read_csv('outputs/submission.csv')
+assert check.columns.tolist()==sample.columns.tolist()
+assert check.id.tolist()==sample.id.tolist()
+assert np.isfinite(check.target).all() and check.target.between(0,1).all()
+print(submission)
+</code></pre><h2 id="s10">I.10　実験管理・再現性</h2><p>実験IDごとに設定、分割、スコア、環境を保存する。以下はTensorFlowなしで動く記録例。実際のモデル学習スクリプトから呼び出す場合、実測値で置き換える。乱数固定はGPU等での完全一致を保証しない。</p><p><a download="" href="templates/experiment.py">Pythonファイル：experiment.py</a></p><div class="code-head"><span>コードI.9　experiment.py</span><button data-copy="code9" type="button">コピー</button></div><pre><code id="code9">import json, platform, importlib.metadata as md
+from pathlib import Path
+from datetime import datetime, timezone
+import numpy as np
+run=Path('outputs')/datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+run.mkdir(parents=True,exist_ok=False)
+versions={}
+for pkg in ['numpy','pandas','scikit-learn','tensorflow','keras']:
+    try: versions[pkg]=md.version(pkg)
+    except md.PackageNotFoundError: versions[pkg]=None
+config={'seed':42,'metric':'MAE','model':'constant demo','python':platform.python_version(),'versions':versions}
+y=np.array([1.,2.,3.]); pred=np.ones_like(y)*2
+config['score']=float(np.mean(abs(y-pred)))
+(run/'config.json').write_text(json.dumps(config,indent=2),encoding='utf-8')
+np.save(run/'pred.npy',pred)
+print(run,config['score'])
+</code></pre><h2 id="s11">I.11　実コンペへの移植チェックリスト</h2><p>関連章：<a href="chapter29.html">表形式</a>・<a href="chapter30.html">画像</a>・<a href="chapter32.html">文章</a>・<a href="chapter33.html">時系列</a>・<a href="chapter36.html">探索</a>・<a href="chapter37.html">融合</a>。</p><div class="table-wrap"><table><thead><tr><th>確認対象</th><th>作業</th></tr></thead><tbody><tr><td>規約</td><td>外部データ・事前学習・提出回数を確認</td></tr><tr><td>入力</td><td>ID、欠損、重複、単位、ラベルの範囲</td></tr><tr><td>分割</td><td>個体・時間・重複の漏洩を防止</td></tr><tr><td>前処理</td><td>訓練だけでfitし推論でも再現</td></tr><tr><td>学習</td><td>停止用検証と評価用検証を分離</td></tr><tr><td>提出</td><td>行数・列順・ID・有限値・予測尺度</td></tr><tr><td>保存</td><td>モデルと前処理・環境・設定を保存</td></tr></tbody></table></div><p>参考資料：<a href="https://www.tensorflow.org/guide/keras/training_with_built_in_methods">TensorFlow 学習と評価</a>、<a href="https://www.tensorflow.org/guide/data">tf.data</a>、<a href="https://keras.io/guides/keras_tuner/getting_started/">KerasTuner</a>。TensorFlowによる実行は未検証。データセットの取得にはネットワークが必要な例がある。</p><nav aria-label="章送り" class="chap-nav"><a href="appendix-h.html"><span class="dir">◀ 前の付録</span><span class="ttl">付録H　深層学習の発展領域</span></a><a href="appendix-j.html"><span class="dir">次の付録 ▶</span><span class="ttl">付録J　章末問題の解答・解説</span></a></nav><div class="toc-back"><a href="#">付録の先頭へ戻る</a>　<a href="index.html">全体目次へ</a></div></main><script>document.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);b.textContent="コピー済み";}catch(e){b.textContent="選択してコピーしてください";}}));</script></body></html>

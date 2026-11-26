@@ -1,0 +1,2510 @@
+<!DOCTYPE html>
+
+<html lang="ja"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>第35章 転移学習とファインチューニング｜深層学習の基礎と実践</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&amp;family=Shippori+Mincho:wght@500;600;700&amp;family=Zen+Kaku+Gothic+Antique:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="style.css" rel="stylesheet"/><script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async="" src="https://cdn.jsdelivr.net/npm/mathjax@3.2.1/es5/tex-svg-full.js"></script></head><body><div class="topbar"><div class="inner"><a class="book" href="index.html">深層学習の基礎と実践</a><span>第35章</span></div></div><main class="page"><header class="chapter-head"><p class="eyebrow">Part VII / Chapter 35</p><h1>第35章　転移学習とファインチューニング</h1><p class="lead">学習済みの表現を再利用し、目的のデータに適応させる</p></header><blockquote><b>この章の到達目標</b><ul><li>固定特徴・部分FT・全層FTの違いを理解する。</li><li>凍結解除と層別学習率をKerasで実装する。</li><li>ドメイン適応と自己教師あり学習の基礎を理解する。</li><li>独立した検証で転移の効果を評価する。</li></ul></blockquote><nav class="section-toc"><b>本章の目次</b><ol><li><a href="#s1">35.1 転移学習の問題設定</a></li><li><a href="#s2">35.2 特徴抽出とファインチューニング</a></li><li><a href="#s3">35.3 事前学習済みモデルの選択</a></li><li><a href="#s4">35.4 実践：データ準備とベースライン</a></li><li><a href="#s5">35.5 実践：特徴抽出と段階的な凍結解除</a></li><li><a href="#s6">35.6 層別学習率とカスタム学習</a></li><li><a href="#s7">35.7 Batch Normalizationと状態管理</a></li><li><a href="#s8">35.8 ドメインシフトとドメイン適応</a></li><li><a href="#s9">35.9 自己教師あり学習と表現の再利用</a></li><li><a href="#s10">35.10 少数データでの比較実験</a></li><li><a href="#s11">35.11 実務・Kaggleでの実験設計</a></li><li><a href="#s12">35.12 まとめと確認問題</a></li></ol></nav><hr/><h2 id="s1">35.1 転移学習の問題設定</h2><p>第30章では画像分類に事前学習済みCNNを利用した。本章ではその背後にある学習戦略を一般化する。転移学習（transfer learning）とは、あるデータや課題で獲得した知識を別の課題に再利用することである。元の課題をソース、目的の課題をターゲットと呼ぶ。</p><p>入力 $x$ を特徴抽出器 $f_\theta$ で表現 $z$ に変換し、予測器 $g_\phi$ で出力する。</p>$$z=f_\theta(x),\qquad \hat y=g_\phi(z)$$<p>ソースで得た $\theta_s$ をターゲットの初期値として利用すれば、ランダム初期化から学習するより少ない教師データで有用な特徴を使える場合がある。ただし分布や課題が異なると負の転移（negative transfer）が起きることもある。転移の有効性は検証データで判断する。</p><figure><svg aria-label="ソースで学んだ重みをターゲットへ再利用する（模式図）" height="147.456pt" role="img" style="width:100%;height:auto" version="1.1" viewbox="0 0 460.8 147.456" width="460.8pt" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<metadata>
+<rdf:rdf xmlns:cc="http://creativecommons.org/ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<cc:work>
+<dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"></dc:type>
+<dc:date>2026-11-25T23:27:44.613931</dc:date>
+<dc:format>image/svg+xml</dc:format>
+<dc:creator>
+<cc:agent>
+<dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+</cc:agent>
+</dc:creator>
+</cc:work>
+</rdf:rdf>
+</metadata>
+<defs>
+<style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+</defs>
+<g id="chapter35-svg1-figure_1">
+<g id="chapter35-svg1-patch_1">
+<path d="M 0 147.456 
+L 460.8 147.456 
+L 460.8 0 
+L 0 0 
+z
+" style="fill: #fffdf9"></path>
+</g>
+<g id="chapter35-svg1-axes_1">
+<g id="chapter35-svg1-text_1">
+<g id="chapter35-svg1-patch_2">
+<path d="M 27.743078 50.736969 
+L 93.792922 50.736969 
+Q 98.742922 50.736969 98.742922 45.786969 
+L 98.742922 35.141031 
+Q 98.742922 30.191031 93.792922 30.191031 
+L 27.743078 30.191031 
+Q 22.793078 30.191031 22.793078 35.141031 
+L 22.793078 45.786969 
+Q 22.793078 50.736969 27.743078 50.736969 
+z
+" style="fill: #e4edf3; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 60.768 43.499312)" x="60.768" y="43.499312">Source data</text>
+</g>
+<g id="chapter35-svg1-text_2">
+<g id="chapter35-svg1-patch_3">
+<path d="M 200.351953 50.736969 
+L 260.448047 50.736969 
+Q 265.398047 50.736969 265.398047 45.786969 
+L 265.398047 35.141031 
+Q 265.398047 30.191031 260.448047 30.191031 
+L 200.351953 30.191031 
+Q 195.401953 30.191031 195.401953 35.141031 
+L 195.401953 45.786969 
+Q 195.401953 50.736969 200.351953 50.736969 
+z
+" style="fill: #dceee5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 230.4 43.499312)" x="230.4" y="43.499312">Pretraining</text>
+</g>
+<g id="chapter35-svg1-text_3">
+<g id="chapter35-svg1-patch_4">
+<path d="M 354.388016 50.736969 
+L 445.675984 50.736969 
+Q 450.625984 50.736969 450.625984 45.786969 
+L 450.625984 35.141031 
+Q 450.625984 30.191031 445.675984 30.191031 
+L 354.388016 30.191031 
+Q 349.438016 30.191031 349.438016 35.141031 
+L 349.438016 45.786969 
+Q 349.438016 50.736969 354.388016 50.736969 
+z
+" style="fill: #dceee5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 400.032 43.499312)" x="400.032" y="43.499312">Encoder weights</text>
+</g>
+<g id="chapter35-svg1-patch_5">
+<path d="M 100.711727 40.464 
+Q 145.58293 40.464 189.3361 40.464 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 184.9361 38.264 
+L 189.3361 40.464 
+L 184.9361 42.664 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg1-patch_6">
+<path d="M 270.343727 40.464 
+Q 315.21493 40.464 358.9681 40.464 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 354.5681 38.264 
+L 358.9681 40.464 
+L 354.5681 42.664 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg1-text_4">
+<g id="chapter35-svg1-patch_7">
+<path d="M 29.612219 117.264969 
+L 91.923781 117.264969 
+Q 96.873781 117.264969 96.873781 112.314969 
+L 96.873781 101.669031 
+Q 96.873781 96.719031 91.923781 96.719031 
+L 29.612219 96.719031 
+Q 24.662219 96.719031 24.662219 101.669031 
+L 24.662219 112.314969 
+Q 24.662219 117.264969 29.612219 117.264969 
+z
+" style="fill: #e4edf3; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 60.768 110.027313)" x="60.768" y="110.027313">Target data</text>
+</g>
+<g id="chapter35-svg1-text_5">
+<g id="chapter35-svg1-patch_8">
+<path d="M 189.5625 117.264969 
+L 271.2375 117.264969 
+Q 276.1875 117.264969 276.1875 112.314969 
+L 276.1875 101.669031 
+Q 276.1875 96.719031 271.2375 96.719031 
+L 189.5625 96.719031 
+Q 184.6125 96.719031 184.6125 101.669031 
+L 184.6125 112.314969 
+Q 184.6125 117.264969 189.5625 117.264969 
+z
+" style="fill: #dceee5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 230.4 110.027313)" x="230.4" y="110.027313">Reuse encoder</text>
+</g>
+<g id="chapter35-svg1-text_6">
+<g id="chapter35-svg1-patch_9">
+<path d="M 372.555203 117.264969 
+L 427.508797 117.264969 
+Q 432.458797 117.264969 432.458797 112.314969 
+L 432.458797 101.669031 
+Q 432.458797 96.719031 427.508797 96.719031 
+L 372.555203 96.719031 
+Q 367.605203 96.719031 367.605203 101.669031 
+L 367.605203 112.314969 
+Q 367.605203 117.264969 372.555203 117.264969 
+z
+" style="fill: #f4e5d5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 400.032 110.027313)" x="400.032" y="110.027313">New head</text>
+</g>
+<g id="chapter35-svg1-patch_10">
+<path d="M 100.711727 106.992 
+Q 145.58293 106.992 189.3361 106.992 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 184.9361 104.792 
+L 189.3361 106.992 
+L 184.9361 109.192 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg1-patch_11">
+<path d="M 270.343727 106.992 
+Q 315.21493 106.992 358.9681 106.992 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 354.5681 104.792 
+L 358.9681 106.992 
+L 354.5681 109.192 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+</g>
+</g>
+</svg>
+<figcaption>図35.1　ソースで学んだ重みをターゲットへ再利用する（模式図）</figcaption></figure><h2 id="s2">35.2 特徴抽出とファインチューニング</h2><p>特徴抽出では $\theta=\theta_s$ を固定し、新しいヘッドだけを最適化する。ファインチューニングでは特徴抽出器の一部または全部も更新する。</p>$$\min_\phi L_t(\theta_s,\phi),\qquad \min_{\theta,\phi}L_t(\theta,\phi)$$<p>後者の初期値は前者で学習したヘッドと事前学習済み重みであることが多い。初期のランダムなヘッドによる大きな勾配で有用な表現を壊す危険を減らすためである。</p><div class="table-wrap"><table><tr><th>方式</th><th>更新する部分</th><th>利点と制約</th></tr><tr><td>Scratch</td><td>全層</td><td>ソース依存なし、データと計算が必要</td></tr><tr><td>Linear probe</td><td>線形ヘッド</td><td>表現から線形モデルで予測できる程度を評価</td></tr><tr><td>特徴抽出</td><td>ヘッドのみ</td><td>高速、表現の適応は不可</td></tr><tr><td>部分FT</td><td>上位ブロックとヘッド</td><td>過学習と適応の折衷</td></tr><tr><td>全層FT</td><td>全層</td><td>柔軟、計算量と忘却リスク</td></tr></table></div><figure><svg aria-label="上から特徴抽出・部分FT・全層FT（青は固定）" height="183.492pt" role="img" style="width:100%;height:auto" version="1.1" viewbox="0 0 460.8 183.492" width="460.8pt" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<metadata>
+<rdf:rdf xmlns:cc="http://creativecommons.org/ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<cc:work>
+<dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"></dc:type>
+<dc:date>2026-11-25T23:27:44.643722</dc:date>
+<dc:format>image/svg+xml</dc:format>
+<dc:creator>
+<cc:agent>
+<dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+</cc:agent>
+</dc:creator>
+</cc:work>
+</rdf:rdf>
+</metadata>
+<defs>
+<style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+</defs>
+<g id="chapter35-svg2-figure_1">
+<g id="chapter35-svg2-patch_1">
+<path d="M 0 183.492 
+L 460.8 183.492 
+L 460.8 0 
+L 0 0 
+z
+" style="fill: #fffdf9"></path>
+</g>
+<g id="chapter35-svg2-axes_1">
+<g id="chapter35-svg2-text_1">
+<g id="chapter35-svg2-patch_2">
+<path d="M 42.744328 45.654969 
+L 78.791672 45.654969 
+Q 83.741672 45.654969 83.741672 40.704969 
+L 83.741672 30.059031 
+Q 83.741672 25.109031 78.791672 25.109031 
+L 42.744328 25.109031 
+Q 37.794328 25.109031 37.794328 30.059031 
+L 37.794328 40.704969 
+Q 37.794328 45.654969 42.744328 45.654969 
+z
+" style="fill: #e4edf3; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 60.768 38.417312)" x="60.768" y="38.417312">Frozen</text>
+</g>
+<g id="chapter35-svg2-text_2">
+<g id="chapter35-svg2-patch_3">
+<path d="M 212.376328 45.654969 
+L 248.423672 45.654969 
+Q 253.373672 45.654969 253.373672 40.704969 
+L 253.373672 30.059031 
+Q 253.373672 25.109031 248.423672 25.109031 
+L 212.376328 25.109031 
+Q 207.426328 25.109031 207.426328 30.059031 
+L 207.426328 40.704969 
+Q 207.426328 45.654969 212.376328 45.654969 
+z
+" style="fill: #e4edf3; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 230.4 38.417312)" x="230.4" y="38.417312">Frozen</text>
+</g>
+<g id="chapter35-svg2-text_3">
+<g id="chapter35-svg2-patch_4">
+<path d="M 371.358953 45.654969 
+L 428.705047 45.654969 
+Q 433.655047 45.654969 433.655047 40.704969 
+L 433.655047 30.059031 
+Q 433.655047 25.109031 428.705047 25.109031 
+L 371.358953 25.109031 
+Q 366.408953 25.109031 366.408953 30.059031 
+L 366.408953 40.704969 
+Q 366.408953 45.654969 371.358953 45.654969 
+z
+" style="fill: #f4e5d5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 400.032 38.417312)" x="400.032" y="38.417312">Train head</text>
+</g>
+<g id="chapter35-svg2-patch_5">
+<path d="M 100.711727 35.382 
+Q 145.58293 35.382 189.3361 35.382 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 184.9361 33.182 
+L 189.3361 35.382 
+L 184.9361 37.582 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg2-patch_6">
+<path d="M 270.343727 35.382 
+Q 315.21493 35.382 358.9681 35.382 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 354.5681 33.182 
+L 358.9681 35.382 
+L 354.5681 37.582 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg2-text_4">
+<g id="chapter35-svg2-patch_7">
+<path d="M 42.744328 102.018969 
+L 78.791672 102.018969 
+Q 83.741672 102.018969 83.741672 97.068969 
+L 83.741672 86.423031 
+Q 83.741672 81.473031 78.791672 81.473031 
+L 42.744328 81.473031 
+Q 37.794328 81.473031 37.794328 86.423031 
+L 37.794328 97.068969 
+Q 37.794328 102.018969 42.744328 102.018969 
+z
+" style="fill: #e4edf3; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 60.768 94.781312)" x="60.768" y="94.781312">Frozen</text>
+</g>
+<g id="chapter35-svg2-text_5">
+<g id="chapter35-svg2-patch_8">
+<path d="M 199.344766 102.018969 
+L 261.455234 102.018969 
+Q 266.405234 102.018969 266.405234 97.068969 
+L 266.405234 86.423031 
+Q 266.405234 81.473031 261.455234 81.473031 
+L 199.344766 81.473031 
+Q 194.394766 81.473031 194.394766 86.423031 
+L 194.394766 97.068969 
+Q 194.394766 102.018969 199.344766 102.018969 
+z
+" style="fill: #dceee5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 230.4 94.781312)" x="230.4" y="94.781312">Train upper</text>
+</g>
+<g id="chapter35-svg2-text_6">
+<g id="chapter35-svg2-patch_9">
+<path d="M 371.358953 102.018969 
+L 428.705047 102.018969 
+Q 433.655047 102.018969 433.655047 97.068969 
+L 433.655047 86.423031 
+Q 433.655047 81.473031 428.705047 81.473031 
+L 371.358953 81.473031 
+Q 366.408953 81.473031 366.408953 86.423031 
+L 366.408953 97.068969 
+Q 366.408953 102.018969 371.358953 102.018969 
+z
+" style="fill: #f4e5d5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 400.032 94.781312)" x="400.032" y="94.781312">Train head</text>
+</g>
+<g id="chapter35-svg2-patch_10">
+<path d="M 100.711727 91.746 
+Q 145.58293 91.746 189.3361 91.746 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 184.9361 89.546 
+L 189.3361 91.746 
+L 184.9361 93.946 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg2-patch_11">
+<path d="M 270.343727 91.746 
+Q 315.21493 91.746 358.9681 91.746 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 354.5681 89.546 
+L 358.9681 91.746 
+L 354.5681 93.946 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg2-text_7">
+<g id="chapter35-svg2-patch_12">
+<path d="M 30.790422 158.382969 
+L 90.745578 158.382969 
+Q 95.695578 158.382969 95.695578 153.432969 
+L 95.695578 142.787031 
+Q 95.695578 137.837031 90.745578 137.837031 
+L 30.790422 137.837031 
+Q 25.840422 137.837031 25.840422 142.787031 
+L 25.840422 153.432969 
+Q 25.840422 158.382969 30.790422 158.382969 
+z
+" style="fill: #dceee5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 60.768 151.145313)" x="60.768" y="151.145313">Train lower</text>
+</g>
+<g id="chapter35-svg2-text_8">
+<g id="chapter35-svg2-patch_13">
+<path d="M 199.344766 158.382969 
+L 261.455234 158.382969 
+Q 266.405234 158.382969 266.405234 153.432969 
+L 266.405234 142.787031 
+Q 266.405234 137.837031 261.455234 137.837031 
+L 199.344766 137.837031 
+Q 194.394766 137.837031 194.394766 142.787031 
+L 194.394766 153.432969 
+Q 194.394766 158.382969 199.344766 158.382969 
+z
+" style="fill: #dceee5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 230.4 151.145313)" x="230.4" y="151.145313">Train upper</text>
+</g>
+<g id="chapter35-svg2-text_9">
+<g id="chapter35-svg2-patch_14">
+<path d="M 371.358953 158.382969 
+L 428.705047 158.382969 
+Q 433.655047 158.382969 433.655047 153.432969 
+L 433.655047 142.787031 
+Q 433.655047 137.837031 428.705047 137.837031 
+L 371.358953 137.837031 
+Q 366.408953 137.837031 366.408953 142.787031 
+L 366.408953 153.432969 
+Q 366.408953 158.382969 371.358953 158.382969 
+z
+" style="fill: #f4e5d5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 400.032 151.145313)" x="400.032" y="151.145313">Train head</text>
+</g>
+<g id="chapter35-svg2-patch_15">
+<path d="M 100.711727 148.11 
+Q 145.58293 148.11 189.3361 148.11 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 184.9361 145.91 
+L 189.3361 148.11 
+L 184.9361 150.31 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg2-patch_16">
+<path d="M 270.343727 148.11 
+Q 315.21493 148.11 358.9681 148.11 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 354.5681 145.91 
+L 358.9681 148.11 
+L 354.5681 150.31 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+</g>
+</g>
+</svg>
+<figcaption>図35.2　上から特徴抽出・部分FT・全層FT（青は固定）</figcaption></figure><h2 id="s3">35.3 事前学習済みモデルの選択</h2><p>モデルの選択では事前学習のデータ、入力サイズ・色順・正規化、出力特徴の次元、利用条件、推論コストを調べる。画像ではImageNetで学習したMobileNetV2やResNet、文章では第32章のBERT、音声では波形やスペクトログラムに対応したエンコーダが候補となる。目的データと近い事前学習が常に最良とは限らない。</p><p>データが少なくソースと近い場合は固定特徴から開始し、データが多い場合や分布が異なる場合は部分FTから全層FTへ比較範囲を広げる。入力の正規化はモデルごとの仕様に従う。MobileNetV2では0〜255の画素を−1〜1へ写すが、別のモデルに同じ処理を無条件に適用してはいけない。</p><h2 id="s4">35.4 実践：データ準備とベースライン</h2><p>ここからはCIFAR-10の小標本を使う連続した実習である。訓練は各クラス200枚、検証は各クラス100枚、公式テストは最後まで保持する。画像を96×96に拡大してMobileNetV2へ渡す。拡大は情報を増やす処理ではない。コード35.1〜35.3を順番に実行する。データと重みの初回取得にネット接続が必要である。</p><div class="code-head"><span>コード35.1　データ分割と入力パイプライン</span><button data-copy="code1" type="button">コピー</button></div><pre><code id="code1">import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+keras.utils.set_random_seed(35)
+(x,y),(xt,yt)=keras.datasets.cifar10.load_data()
+y=y.ravel(); yt=yt.ravel()
+rng=np.random.default_rng(35)
+tr=[]; va=[]
+for c in range(10):
+    ids=rng.permutation(np.flatnonzero(y==c))
+    tr.extend(ids[:200]); va.extend(ids[200:300])
+assert not set(tr)&amp;set(va)
+def dataset(x,y,train=False):
+    ds=tf.data.Dataset.from_tensor_slices((x,y))
+    if train: ds=ds.shuffle(len(y),seed=35)
+    return ds.batch(32).prefetch(tf.data.AUTOTUNE)
+train=dataset(x[tr],y[tr],True)
+val=dataset(x[va],y[va])
+test=dataset(xt,yt)
+def build(weights,freeze):
+    base=keras.applications.MobileNetV2(input_shape=(96,96,3),
+        include_top=False,weights=weights)
+    base.trainable=not freeze
+    inp=keras.Input((32,32,3))
+    z=layers.Resizing(96,96)(inp)
+    z=layers.RandomFlip('horizontal')(z)
+    z=layers.Rescaling(1/127.5,offset=-1)(z)
+    z=base(z,training=False) if freeze else base(z)
+    z=layers.GlobalAveragePooling2D()(z)
+    z=layers.Dropout(.2)(z)
+    return keras.Model(inp,layers.Dense(10)(z)),base
+def fit_stage(model,lr,epochs):
+    model.compile(optimizer=keras.optimizers.Adam(lr),
+        loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        metrics=['accuracy'])
+    return model.fit(train,validation_data=val,epochs=epochs,
+        callbacks=[keras.callbacks.EarlyStopping(monitor='val_loss',
+            patience=3,restore_best_weights=True)])
+</code></pre><h2 id="s5">35.5 実践：特徴抽出と段階的な凍結解除</h2><p>比較対象は同じ骨格をランダム初期化したモデルと、ImageNet重みを固定したモデルである。次に後段ブロックを解凍する。解凍前のヘッド学習済み重みを保存しておくことで、検証性能が悪化した場合に戻せる。下記の学習率やエポック数は出発点であり、検証集合だけで選ぶ。</p><div class="code-head"><span>コード35.2　Scratchと固定特徴の比較</span><button data-copy="code2" type="button">コピー</button></div><pre><code id="code2">scratch,_=build(None,False)
+h_scratch=fit_stage(scratch,1e-3,20)
+model,base=build('imagenet',True)
+h_probe=fit_stage(model,1e-3,10)
+probe_weights=model.get_weights()
+probe_loss=float(model.evaluate(val,verbose=0)[0])
+scratch_loss=float(scratch.evaluate(val,verbose=0)[0])
+print('validation loss',scratch_loss,probe_loss)
+</code></pre><div class="code-head"><span>コード35.3　部分FT・検証による選択・最終評価</span><button data-copy="code3" type="button">コピー</button></div><pre><code id="code3">base.trainable=True
+for layer in base.layers:
+    layer.trainable=False
+for layer in base.layers[-30:]:
+    if not isinstance(layer,layers.BatchNormalization):
+        layer.trainable=True
+h_ft=fit_stage(model,1e-5,10)  # 再compile、新しいoptimizer
+ft_loss=float(model.evaluate(val,verbose=0)[0])
+if ft_loss&gt;probe_loss:
+    model.set_weights(probe_weights)
+    base.trainable=False
+    model.compile(optimizer=keras.optimizers.Adam(1e-3),
+        loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        metrics=['accuracy'])
+selected=model if min(ft_loss,probe_loss)&lt;=scratch_loss else scratch
+print('final test',selected.evaluate(test,verbose=0))
+selected.save('chapter35_selected.keras')
+</code></pre><p>実験比較では同一データ・指標を使い、探索予算や計算時間も記録する。上のコードは教育用の単一シードであり、実務では複数シードで再評価する。テスト結果を見て再選択しない。</p><figure><svg aria-label="二段階学習の学習率設定例（模式図、実測ではない）" height="201.923875pt" role="img" style="width:100%;height:auto" version="1.1" viewbox="0 0 452.495938 201.923875" width="452.495938pt" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<metadata>
+<rdf:rdf xmlns:cc="http://creativecommons.org/ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<cc:work>
+<dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"></dc:type>
+<dc:date>2026-11-25T23:27:45.006281</dc:date>
+<dc:format>image/svg+xml</dc:format>
+<dc:creator>
+<cc:agent>
+<dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+</cc:agent>
+</dc:creator>
+</cc:work>
+</rdf:rdf>
+</metadata>
+<defs>
+<style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+</defs>
+<g id="chapter35-svg3-figure_1">
+<g id="chapter35-svg3-patch_1">
+<path d="M 0 201.923875 
+L 452.495938 201.923875 
+L 452.495938 0 
+L 0 0 
+z
+" style="fill: #fffdf9"></path>
+</g>
+<g id="chapter35-svg3-axes_1">
+<g id="chapter35-svg3-patch_2">
+<path d="M 54.695938 162.432 
+L 445.295938 162.432 
+L 445.295938 7.2 
+L 54.695938 7.2 
+z
+" style="fill: #fffdf9"></path>
+</g>
+<g id="chapter35-svg3-matplotlib.axis_1">
+<g id="chapter35-svg3-xtick_1">
+<g id="chapter35-svg3-line2d_1">
+<defs>
+<path d="M 0 0 
+L 0 3.5 
+" id="chapter35-svg3-m2314ee4dac" style="stroke: #000000; stroke-width: 0.8"></path>
+</defs>
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="72.450483" xlink:href="#chapter35-svg3-m2314ee4dac" y="162.432"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_1">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 72.450483 177.790281)" x="72.450483" y="177.790281">0.0</text>
+</g>
+</g>
+<g id="chapter35-svg3-xtick_2">
+<g id="chapter35-svg3-line2d_2">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="116.836847" xlink:href="#chapter35-svg3-m2314ee4dac" y="162.432"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_2">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 116.836847 177.790281)" x="116.836847" y="177.790281">2.5</text>
+</g>
+</g>
+<g id="chapter35-svg3-xtick_3">
+<g id="chapter35-svg3-line2d_3">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="161.22321" xlink:href="#chapter35-svg3-m2314ee4dac" y="162.432"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_3">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 161.22321 177.790281)" x="161.22321" y="177.790281">5.0</text>
+</g>
+</g>
+<g id="chapter35-svg3-xtick_4">
+<g id="chapter35-svg3-line2d_4">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="205.609574" xlink:href="#chapter35-svg3-m2314ee4dac" y="162.432"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_4">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 205.609574 177.790281)" x="205.609574" y="177.790281">7.5</text>
+</g>
+</g>
+<g id="chapter35-svg3-xtick_5">
+<g id="chapter35-svg3-line2d_5">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="249.995938" xlink:href="#chapter35-svg3-m2314ee4dac" y="162.432"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_5">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 249.995938 177.790281)" x="249.995938" y="177.790281">10.0</text>
+</g>
+</g>
+<g id="chapter35-svg3-xtick_6">
+<g id="chapter35-svg3-line2d_6">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="294.382301" xlink:href="#chapter35-svg3-m2314ee4dac" y="162.432"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_6">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 294.382301 177.790281)" x="294.382301" y="177.790281">12.5</text>
+</g>
+</g>
+<g id="chapter35-svg3-xtick_7">
+<g id="chapter35-svg3-line2d_7">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="338.768665" xlink:href="#chapter35-svg3-m2314ee4dac" y="162.432"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_7">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 338.768665 177.790281)" x="338.768665" y="177.790281">15.0</text>
+</g>
+</g>
+<g id="chapter35-svg3-xtick_8">
+<g id="chapter35-svg3-line2d_8">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="383.155028" xlink:href="#chapter35-svg3-m2314ee4dac" y="162.432"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_8">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 383.155028 177.790281)" x="383.155028" y="177.790281">17.5</text>
+</g>
+</g>
+<g id="chapter35-svg3-xtick_9">
+<g id="chapter35-svg3-line2d_9">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="427.541392" xlink:href="#chapter35-svg3-m2314ee4dac" y="162.432"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_9">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 427.541392 177.790281)" x="427.541392" y="177.790281">20.0</text>
+</g>
+</g>
+<g id="chapter35-svg3-text_10">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 249.995938 192.436219)" x="249.995938" y="192.436219">Illustrative epoch</text>
+</g>
+</g>
+<g id="chapter35-svg3-matplotlib.axis_2">
+<g id="chapter35-svg3-ytick_1">
+<g id="chapter35-svg3-line2d_10">
+<defs>
+<path d="M 0 0 
+L -3.5 0 
+" id="chapter35-svg3-md5da00f563" style="stroke: #000000; stroke-width: 0.8"></path>
+</defs>
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="54.695938" xlink:href="#chapter35-svg3-md5da00f563" y="144.473349"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_11">
+<!-- $\mathdefault{10^{-5}}$ -->
+<g transform="translate(21.845938 148.652489)">
+<text>
+<tspan style="font-size: 11px; font-family: 'DejaVu Sans'" x="0" y="-0.178125">1</tspan>
+<tspan style="font-size: 11px; font-family: 'DejaVu Sans'" x="6.998535" y="-0.178125">0</tspan>
+<tspan style="font-size: 7.7px; font-family: 'DejaVu Sans'" x="14.102344" y="-4.389063">−</tspan>
+<tspan style="font-size: 7.7px; font-family: 'DejaVu Sans'" x="20.554102" y="-4.389063">5</tspan>
+</text>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_2">
+<g id="chapter35-svg3-line2d_11">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="54.695938" xlink:href="#chapter35-svg3-md5da00f563" y="84.816"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_12">
+<!-- $\mathdefault{10^{-4}}$ -->
+<g transform="translate(21.845938 88.995141)">
+<text>
+<tspan style="font-size: 11px; font-family: 'DejaVu Sans'" x="0" y="-0.178125">1</tspan>
+<tspan style="font-size: 11px; font-family: 'DejaVu Sans'" x="6.998535" y="-0.178125">0</tspan>
+<tspan style="font-size: 7.7px; font-family: 'DejaVu Sans'" x="14.102344" y="-4.389063">−</tspan>
+<tspan style="font-size: 7.7px; font-family: 'DejaVu Sans'" x="20.554102" y="-4.389063">4</tspan>
+</text>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_3">
+<g id="chapter35-svg3-line2d_12">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="54.695938" xlink:href="#chapter35-svg3-md5da00f563" y="25.158651"></use>
+</g>
+</g>
+<g id="chapter35-svg3-text_13">
+<!-- $\mathdefault{10^{-3}}$ -->
+<g transform="translate(21.845938 29.337792)">
+<text>
+<tspan style="font-size: 11px; font-family: 'DejaVu Sans'" x="0" y="-0.06875">1</tspan>
+<tspan style="font-size: 11px; font-family: 'DejaVu Sans'" x="6.998535" y="-0.06875">0</tspan>
+<tspan style="font-size: 7.7px; font-family: 'DejaVu Sans'" x="14.102344" y="-4.279688">−</tspan>
+<tspan style="font-size: 7.7px; font-family: 'DejaVu Sans'" x="20.554102" y="-4.279688">3</tspan>
+</text>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_4">
+<g id="chapter35-svg3-line2d_13">
+<defs>
+<path d="M 0 0 
+L -2 0 
+" id="chapter35-svg3-m9b931a56cf" style="stroke: #000000; stroke-width: 0.6"></path>
+</defs>
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="162.432"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_5">
+<g id="chapter35-svg3-line2d_14">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="157.708257"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_6">
+<g id="chapter35-svg3-line2d_15">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="153.714389"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_7">
+<g id="chapter35-svg3-line2d_16">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="150.254743"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_8">
+<g id="chapter35-svg3-line2d_17">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="147.203119"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_9">
+<g id="chapter35-svg3-line2d_18">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="126.514697"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_10">
+<g id="chapter35-svg3-line2d_19">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="116.00956"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_11">
+<g id="chapter35-svg3-line2d_20">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="108.556046"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_12">
+<g id="chapter35-svg3-line2d_21">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="102.774651"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_13">
+<g id="chapter35-svg3-line2d_22">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="98.050908"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_14">
+<g id="chapter35-svg3-line2d_23">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="94.05704"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_15">
+<g id="chapter35-svg3-line2d_24">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="90.597394"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_16">
+<g id="chapter35-svg3-line2d_25">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="87.545771"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_17">
+<g id="chapter35-svg3-line2d_26">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="66.857349"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_18">
+<g id="chapter35-svg3-line2d_27">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="56.352211"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_19">
+<g id="chapter35-svg3-line2d_28">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="48.898697"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_20">
+<g id="chapter35-svg3-line2d_29">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="43.117303"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_21">
+<g id="chapter35-svg3-line2d_30">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="38.39356"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_22">
+<g id="chapter35-svg3-line2d_31">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="34.399692"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_23">
+<g id="chapter35-svg3-line2d_32">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="30.940046"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_24">
+<g id="chapter35-svg3-line2d_33">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="27.888422"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-ytick_25">
+<g id="chapter35-svg3-line2d_34">
+<g>
+<use style="stroke: #000000; stroke-width: 0.6" x="54.695938" xlink:href="#chapter35-svg3-m9b931a56cf" y="7.2"></use>
+</g>
+</g>
+</g>
+<g id="chapter35-svg3-text_14">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-90 15.558281 84.816)" x="15.558281" y="84.816">Learning rate</text>
+</g>
+</g>
+<g id="chapter35-svg3-line2d_35">
+<path clip-path="url(#chapter35-svg3-pe7ab54ea65)" d="M 72.450483 25.158651 
+L 249.995938 25.158651 
+L 249.995938 144.473349 
+L 427.541392 144.473349 
+L 427.541392 144.473349 
+" style="fill: none; stroke: #2f5b7c; stroke-width: 1.5; stroke-linecap: square"></path>
+</g>
+<g id="chapter35-svg3-line2d_36">
+<path clip-path="url(#chapter35-svg3-pe7ab54ea65)" d="M 249.995938 162.432 
+L 249.995938 7.2 
+" style="fill: none; stroke-dasharray: 5.55,2.4; stroke-dashoffset: 0; stroke: #b47845; stroke-width: 1.5"></path>
+</g>
+<g id="chapter35-svg3-patch_3">
+<path d="M 54.695938 162.432 
+L 54.695938 7.2 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"></path>
+</g>
+<g id="chapter35-svg3-patch_4">
+<path d="M 54.695938 162.432 
+L 445.295938 162.432 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"></path>
+</g>
+<g id="chapter35-svg3-text_15">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" transform="rotate(-0 107.959574 48.898697)" x="107.959574" y="48.898697">Head only</text>
+</g>
+<g id="chapter35-svg3-text_16">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" transform="rotate(-0 285.505028 120.733303)" x="285.505028" y="120.733303">Partial fine-tune</text>
+</g>
+</g>
+</g>
+<defs>
+<clippath id="chapter35-svg3-pe7ab54ea65">
+<rect height="155.232" width="390.6" x="54.695938" y="7.2"></rect>
+</clippath>
+</defs>
+</svg>
+<figcaption>図35.3　二段階学習の学習率設定例（模式図、実測ではない）</figcaption></figure><h2 id="s6">35.6 層別学習率とカスタム学習</h2><p>新しいヘッドと事前学習済み層で異なる学習率を使う層別学習率（discriminative learning rates）は、下位表現を保ちつつ上位を適応させる方法である。</p>$$\theta_{l,t+1}=\theta_{l,t}-\eta_l\nabla_{\theta_l}L$$<p>Adamで勾配を単に定数倍しても、一次・二次モーメントの正規化により学習率を変えた効果とは一般に一致しない。別々のoptimizerを使う方法を示す。下記はコード35.1の後に独立して実行する小さな例で、ヘッドを先に学習してから解凍する。各optimizerには固定した変数集合を渡す。</p><div class="code-head"><span>コード35.4　二つのoptimizerを使うカスタム学習</span><button data-copy="code4" type="button">コピー</button></div><pre><code id="code4">m,b=build('imagenet',True)
+fit_stage(m,1e-3,5)
+b.trainable=True
+for layer in b.layers:
+    layer.trainable=False
+for layer in b.layers[-30:]:
+    if not isinstance(layer,layers.BatchNormalization):
+        layer.trainable=True
+v_base=list(b.trainable_variables)
+base_ids={id(v) for v in v_base}
+v_head=[v for v in m.trainable_variables if id(v) not in base_ids]
+assert v_base and v_head
+opt_b=keras.optimizers.Adam(1e-5)
+opt_h=keras.optimizers.Adam(1e-4)
+loss_fn=keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+for epoch in range(3):
+    for xb,yb in train:
+        with tf.GradientTape() as tape:
+            loss=loss_fn(yb,m(xb,training=True))
+        grads=tape.gradient(loss,v_base+v_head)
+        n=len(v_base)
+        opt_b.apply_gradients(zip(grads[:n],v_base))
+        opt_h.apply_gradients(zip(grads[n:],v_head))
+    vloss=keras.metrics.Mean()
+    for xb,yb in val:
+        vloss.update_state(loss_fn(yb,m(xb,training=False)),
+                           sample_weight=tf.cast(tf.shape(yb)[0],tf.float32))
+    print(epoch,float(vloss.result()))
+</code></pre><h2 id="s7">35.7 Batch Normalizationと状態管理</h2><p>第19章のBatch Normalization（BN）は学習可能な $\gamma,\beta$ と移動平均・移動分散を持つ。固定した重みが変わらなくても、学習モードで状態が更新される層が存在する。Kerasの <code>trainable</code> は重み更新の可否、<code>training</code> は順伝播の動作モードであり、通常は別概念である。BNでは <code>trainable=False</code> が推論モードにも結びつく特例がある。</p><p>小標本FTではBN統計を保持するため、上のモデルでは事前学習済みbaseを <code>training=False</code> で呼び出し、BN層を固定する。これでも解凍した畳み込み層の勾配は伝わる。一方、ヘッドのDropoutや入力拡張は学習中だけ有効となる。ターゲットが大きく異なり十分なデータがあるならBNの再適応も比較候補だが、評価データを統計の更新に使わない。</p><div class="code-head"><span>コード35.5　凍結した重みと状態を検査する（コード35.2の固定段階で実行）</span><button data-copy="code5" type="button">コピー</button></div><pre><code id="code5">check,enc=build('imagenet',True)
+before=[v.numpy().copy() for v in enc.weights]
+check.compile(optimizer='adam',loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True))
+xb,yb=next(iter(train))
+check.train_on_batch(xb,yb)
+for old,v in zip(before,enc.weights):
+    np.testing.assert_array_equal(old,v.numpy())
+print('encoder weights and BN state unchanged')
+</code></pre><h2 id="s8">35.8 ドメインシフトとドメイン適応</h2><p>ソースとターゲットの分布が異なる現象をドメインシフトと呼ぶ。共変量シフトは $p_s(x)\ne p_t(x)$ だが $p_s(y|x)=p_t(y|x)$ と仮定する。ラベルシフトはクラス事前確率の変化（典型的なラベルシフトでは $p_s(x|y)=p_t(x|y)$ を仮定）、概念シフトは条件付き分布の変化である。実際には複数が混在し得る。</p><p>共変量シフトの仮定とターゲット分布がソース分布に対して絶対連続であり、期待損失が有限の場合、重要度重み $w(x)=p_t(x)/p_s(x)$ を用いると</p>$$R_t(f)=\mathbb E_s[w(x)\ell(f(x),y)]$$<p>となる。密度比の推定誤差や極端な重みには注意が必要である。ドメイン適応の代表例には特徴統計の整合（CORAL）、ドメイン識別器を用いた敵対的学習（DANN）、高信頼予測を教師として再学習する擬似ラベルがある。CORALは共分散 $C_s,C_t$ の差 $\|C_s-C_t\|_F^2$ を縮めるが、クラスの意味まで一致する保証はない。擬似ラベルは誤りを増幅し得る。ターゲットのラベル付き検証集合を確保するのが望ましい。</p><figure><svg aria-label="人工データによる特徴分布の変化（可視化例）" height="235.187875pt" role="img" style="width:100%;height:auto" version="1.1" viewbox="0 0 390.421135 235.187875" width="390.421135pt" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<metadata>
+<rdf:rdf xmlns:cc="http://creativecommons.org/ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<cc:work>
+<dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"></dc:type>
+<dc:date>2026-11-25T23:27:45.153575</dc:date>
+<dc:format>image/svg+xml</dc:format>
+<dc:creator>
+<cc:agent>
+<dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+</cc:agent>
+</dc:creator>
+</cc:work>
+</rdf:rdf>
+</metadata>
+<defs>
+<style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+</defs>
+<g id="chapter35-svg4-figure_1">
+<g id="chapter35-svg4-patch_1">
+<path d="M 0 235.187875 
+L 390.421135 235.187875 
+L 390.421135 -0 
+L 0 -0 
+z
+" style="fill: #fffdf9"></path>
+</g>
+<g id="chapter35-svg4-axes_1">
+<g id="chapter35-svg4-patch_2">
+<path d="M 45.062344 195.696 
+L 379.862344 195.696 
+L 379.862344 7.2 
+L 45.062344 7.2 
+z
+" style="fill: #fffdf9"></path>
+</g>
+<g id="chapter35-svg4-PathCollection_1">
+<defs>
+<path d="M 0 1.581139 
+C 0.419323 1.581139 0.821528 1.41454 1.118034 1.118034 
+C 1.41454 0.821528 1.581139 0.419323 1.581139 0 
+C 1.581139 -0.419323 1.41454 -0.821528 1.118034 -1.118034 
+C 0.821528 -1.41454 0.419323 -1.581139 0 -1.581139 
+C -0.419323 -1.581139 -0.821528 -1.41454 -1.118034 -1.118034 
+C -1.41454 -0.821528 -1.581139 -0.419323 -1.581139 0 
+C -1.581139 0.419323 -1.41454 0.821528 -1.118034 1.118034 
+C -0.821528 1.41454 -0.419323 1.581139 0 1.581139 
+z
+" id="chapter35-svg4-m750a282fef" style="stroke: #1f77b4; stroke-opacity: 0.45"></path>
+</defs>
+<g clip-path="url(#chapter35-svg4-pb91f34cc36)">
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="134.874655" xlink:href="#chapter35-svg4-m750a282fef" y="92.443034"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="226.151783" xlink:href="#chapter35-svg4-m750a282fef" y="93.389949"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="238.033853" xlink:href="#chapter35-svg4-m750a282fef" y="112.796943"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="123.512127" xlink:href="#chapter35-svg4-m750a282fef" y="114.405665"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="199.526889" xlink:href="#chapter35-svg4-m750a282fef" y="101.879835"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="156.310579" xlink:href="#chapter35-svg4-m750a282fef" y="167.481139"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="263.839639" xlink:href="#chapter35-svg4-m750a282fef" y="112.957675"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="198.850198" xlink:href="#chapter35-svg4-m750a282fef" y="129.787273"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="147.411907" xlink:href="#chapter35-svg4-m750a282fef" y="95.823221"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="218.230645" xlink:href="#chapter35-svg4-m750a282fef" y="137.870201"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="157.844136" xlink:href="#chapter35-svg4-m750a282fef" y="131.500189"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="136.795936" xlink:href="#chapter35-svg4-m750a282fef" y="134.941619"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="175.487677" xlink:href="#chapter35-svg4-m750a282fef" y="159.176027"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="265.804016" xlink:href="#chapter35-svg4-m750a282fef" y="150.890167"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="164.567509" xlink:href="#chapter35-svg4-m750a282fef" y="65.668659"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="163.447929" xlink:href="#chapter35-svg4-m750a282fef" y="111.721861"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="205.153033" xlink:href="#chapter35-svg4-m750a282fef" y="67.872758"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="144.36304" xlink:href="#chapter35-svg4-m750a282fef" y="72.649125"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="135.880317" xlink:href="#chapter35-svg4-m750a282fef" y="62.595635"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="225.844598" xlink:href="#chapter35-svg4-m750a282fef" y="98.207154"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="168.031373" xlink:href="#chapter35-svg4-m750a282fef" y="70.641295"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="217.432284" xlink:href="#chapter35-svg4-m750a282fef" y="78.87565"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="128.629562" xlink:href="#chapter35-svg4-m750a282fef" y="112.251377"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="193.960102" xlink:href="#chapter35-svg4-m750a282fef" y="96.630954"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="115.121104" xlink:href="#chapter35-svg4-m750a282fef" y="155.454948"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="201.5972" xlink:href="#chapter35-svg4-m750a282fef" y="123.020895"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="190.100803" xlink:href="#chapter35-svg4-m750a282fef" y="142.232151"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="185.480818" xlink:href="#chapter35-svg4-m750a282fef" y="136.370382"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="133.139574" xlink:href="#chapter35-svg4-m750a282fef" y="143.861084"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="194.001939" xlink:href="#chapter35-svg4-m750a282fef" y="156.957592"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="108.112518" xlink:href="#chapter35-svg4-m750a282fef" y="136.47985"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="191.469462" xlink:href="#chapter35-svg4-m750a282fef" y="96.219819"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="206.54035" xlink:href="#chapter35-svg4-m750a282fef" y="88.104135"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="157.863195" xlink:href="#chapter35-svg4-m750a282fef" y="125.478974"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="242.259558" xlink:href="#chapter35-svg4-m750a282fef" y="116.948385"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="192.011189" xlink:href="#chapter35-svg4-m750a282fef" y="138.157327"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="198.128831" xlink:href="#chapter35-svg4-m750a282fef" y="146.583737"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="160.623467" xlink:href="#chapter35-svg4-m750a282fef" y="120.584147"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="170.111516" xlink:href="#chapter35-svg4-m750a282fef" y="98.040683"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="209.50695" xlink:href="#chapter35-svg4-m750a282fef" y="89.996209"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="179.940689" xlink:href="#chapter35-svg4-m750a282fef" y="130.91063"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="174.153911" xlink:href="#chapter35-svg4-m750a282fef" y="126.538812"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="143.546906" xlink:href="#chapter35-svg4-m750a282fef" y="70.810142"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="129.249378" xlink:href="#chapter35-svg4-m750a282fef" y="95.868487"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="157.865605" xlink:href="#chapter35-svg4-m750a282fef" y="162.537905"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="258.642439" xlink:href="#chapter35-svg4-m750a282fef" y="126.071696"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="131.777044" xlink:href="#chapter35-svg4-m750a282fef" y="53.663637"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="164.281726" xlink:href="#chapter35-svg4-m750a282fef" y="112.26511"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="240.007009" xlink:href="#chapter35-svg4-m750a282fef" y="142.015165"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="137.21977" xlink:href="#chapter35-svg4-m750a282fef" y="96.15206"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="194.122035" xlink:href="#chapter35-svg4-m750a282fef" y="137.842496"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="116.489057" xlink:href="#chapter35-svg4-m750a282fef" y="152.221928"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="198.447967" xlink:href="#chapter35-svg4-m750a282fef" y="79.850923"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="227.729926" xlink:href="#chapter35-svg4-m750a282fef" y="101.946101"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="195.470069" xlink:href="#chapter35-svg4-m750a282fef" y="173.279116"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="178.24658" xlink:href="#chapter35-svg4-m750a282fef" y="127.465177"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="235.04216" xlink:href="#chapter35-svg4-m750a282fef" y="118.996048"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="184.874751" xlink:href="#chapter35-svg4-m750a282fef" y="108.403647"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="197.664822" xlink:href="#chapter35-svg4-m750a282fef" y="98.116861"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="267.721985" xlink:href="#chapter35-svg4-m750a282fef" y="72.674552"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="197.951899" xlink:href="#chapter35-svg4-m750a282fef" y="132.546722"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="251.642875" xlink:href="#chapter35-svg4-m750a282fef" y="88.661274"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="185.181066" xlink:href="#chapter35-svg4-m750a282fef" y="126.77957"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="140.782637" xlink:href="#chapter35-svg4-m750a282fef" y="84.042412"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="225.016812" xlink:href="#chapter35-svg4-m750a282fef" y="110.72129"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="181.429419" xlink:href="#chapter35-svg4-m750a282fef" y="63.18895"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="203.220357" xlink:href="#chapter35-svg4-m750a282fef" y="116.067689"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="153.59774" xlink:href="#chapter35-svg4-m750a282fef" y="86.098495"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="215.448567" xlink:href="#chapter35-svg4-m750a282fef" y="140.884654"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="91.568732" xlink:href="#chapter35-svg4-m750a282fef" y="94.076356"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="208.629947" xlink:href="#chapter35-svg4-m750a282fef" y="83.112564"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="210.422339" xlink:href="#chapter35-svg4-m750a282fef" y="159.608051"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="226.825994" xlink:href="#chapter35-svg4-m750a282fef" y="122.404464"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="242.37416" xlink:href="#chapter35-svg4-m750a282fef" y="103.313772"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="167.72133" xlink:href="#chapter35-svg4-m750a282fef" y="142.540852"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="160.60764" xlink:href="#chapter35-svg4-m750a282fef" y="102.042291"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="174.977681" xlink:href="#chapter35-svg4-m750a282fef" y="78.700076"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="180.120782" xlink:href="#chapter35-svg4-m750a282fef" y="102.969463"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="153.52008" xlink:href="#chapter35-svg4-m750a282fef" y="130.823802"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="157.465243" xlink:href="#chapter35-svg4-m750a282fef" y="138.339708"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="223.382403" xlink:href="#chapter35-svg4-m750a282fef" y="71.628644"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="157.01914" xlink:href="#chapter35-svg4-m750a282fef" y="122.249441"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="232.813355" xlink:href="#chapter35-svg4-m750a282fef" y="96.154507"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="213.137975" xlink:href="#chapter35-svg4-m750a282fef" y="140.739922"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="259.901805" xlink:href="#chapter35-svg4-m750a282fef" y="101.099202"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="196.516756" xlink:href="#chapter35-svg4-m750a282fef" y="118.990741"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="177.722578" xlink:href="#chapter35-svg4-m750a282fef" y="113.605429"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="171.762276" xlink:href="#chapter35-svg4-m750a282fef" y="103.585031"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="216.818571" xlink:href="#chapter35-svg4-m750a282fef" y="126.825456"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="175.892094" xlink:href="#chapter35-svg4-m750a282fef" y="90.084705"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="203.64779" xlink:href="#chapter35-svg4-m750a282fef" y="26.059254"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="145.032863" xlink:href="#chapter35-svg4-m750a282fef" y="92.477816"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="171.323116" xlink:href="#chapter35-svg4-m750a282fef" y="114.709885"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="179.116105" xlink:href="#chapter35-svg4-m750a282fef" y="114.176795"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="213.265649" xlink:href="#chapter35-svg4-m750a282fef" y="103.010601"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="222.322606" xlink:href="#chapter35-svg4-m750a282fef" y="33.612165"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="222.81517" xlink:href="#chapter35-svg4-m750a282fef" y="113.27236"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="235.759653" xlink:href="#chapter35-svg4-m750a282fef" y="187.128"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="238.795448" xlink:href="#chapter35-svg4-m750a282fef" y="61.07613"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="186.550147" xlink:href="#chapter35-svg4-m750a282fef" y="100.160713"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="176.737662" xlink:href="#chapter35-svg4-m750a282fef" y="137.433907"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="210.372702" xlink:href="#chapter35-svg4-m750a282fef" y="98.167949"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="165.812924" xlink:href="#chapter35-svg4-m750a282fef" y="76.868132"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="142.825077" xlink:href="#chapter35-svg4-m750a282fef" y="83.615563"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="214.51751" xlink:href="#chapter35-svg4-m750a282fef" y="95.606397"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="203.435364" xlink:href="#chapter35-svg4-m750a282fef" y="100.469498"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="132.306516" xlink:href="#chapter35-svg4-m750a282fef" y="169.9364"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="183.339074" xlink:href="#chapter35-svg4-m750a282fef" y="69.787663"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="192.083771" xlink:href="#chapter35-svg4-m750a282fef" y="98.617299"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="200.626315" xlink:href="#chapter35-svg4-m750a282fef" y="99.735556"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="198.049504" xlink:href="#chapter35-svg4-m750a282fef" y="93.300418"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="103.513301" xlink:href="#chapter35-svg4-m750a282fef" y="107.527607"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="124.414067" xlink:href="#chapter35-svg4-m750a282fef" y="82.954277"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="120.524209" xlink:href="#chapter35-svg4-m750a282fef" y="131.466304"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="208.556524" xlink:href="#chapter35-svg4-m750a282fef" y="120.384531"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="201.303405" xlink:href="#chapter35-svg4-m750a282fef" y="139.678608"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="284.865727" xlink:href="#chapter35-svg4-m750a282fef" y="114.665732"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="132.491467" xlink:href="#chapter35-svg4-m750a282fef" y="86.862264"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="156.846417" xlink:href="#chapter35-svg4-m750a282fef" y="109.402439"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="178.435424" xlink:href="#chapter35-svg4-m750a282fef" y="103.692031"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="182.166051" xlink:href="#chapter35-svg4-m750a282fef" y="67.648627"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="225.039136" xlink:href="#chapter35-svg4-m750a282fef" y="133.24629"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="213.755993" xlink:href="#chapter35-svg4-m750a282fef" y="118.337936"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="175.00491" xlink:href="#chapter35-svg4-m750a282fef" y="123.737463"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="132.461447" xlink:href="#chapter35-svg4-m750a282fef" y="95.607287"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="152.446551" xlink:href="#chapter35-svg4-m750a282fef" y="106.593108"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="232.083743" xlink:href="#chapter35-svg4-m750a282fef" y="140.973325"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="172.868227" xlink:href="#chapter35-svg4-m750a282fef" y="109.452544"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="164.910839" xlink:href="#chapter35-svg4-m750a282fef" y="121.192957"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="148.175292" xlink:href="#chapter35-svg4-m750a282fef" y="163.624954"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="182.923212" xlink:href="#chapter35-svg4-m750a282fef" y="56.831681"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="145.663467" xlink:href="#chapter35-svg4-m750a282fef" y="101.414709"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="187.995578" xlink:href="#chapter35-svg4-m750a282fef" y="129.546771"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="168.866648" xlink:href="#chapter35-svg4-m750a282fef" y="89.193673"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="180.538594" xlink:href="#chapter35-svg4-m750a282fef" y="114.702871"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="213.508032" xlink:href="#chapter35-svg4-m750a282fef" y="122.149746"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="138.22277" xlink:href="#chapter35-svg4-m750a282fef" y="118.901788"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="161.460508" xlink:href="#chapter35-svg4-m750a282fef" y="113.371874"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="278.511413" xlink:href="#chapter35-svg4-m750a282fef" y="133.997863"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="150.077868" xlink:href="#chapter35-svg4-m750a282fef" y="89.320914"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="227.328106" xlink:href="#chapter35-svg4-m750a282fef" y="126.434976"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="173.791906" xlink:href="#chapter35-svg4-m750a282fef" y="135.449831"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="218.928314" xlink:href="#chapter35-svg4-m750a282fef" y="113.345335"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="194.460472" xlink:href="#chapter35-svg4-m750a282fef" y="135.721857"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="192.327515" xlink:href="#chapter35-svg4-m750a282fef" y="115.585577"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="191.67643" xlink:href="#chapter35-svg4-m750a282fef" y="104.777437"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="103.43471" xlink:href="#chapter35-svg4-m750a282fef" y="146.753402"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="259.502552" xlink:href="#chapter35-svg4-m750a282fef" y="109.899487"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="215.427193" xlink:href="#chapter35-svg4-m750a282fef" y="108.857097"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="179.848101" xlink:href="#chapter35-svg4-m750a282fef" y="92.12004"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="173.171715" xlink:href="#chapter35-svg4-m750a282fef" y="107.414912"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="207.558459" xlink:href="#chapter35-svg4-m750a282fef" y="136.134751"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="223.77954" xlink:href="#chapter35-svg4-m750a282fef" y="132.698146"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="104.889215" xlink:href="#chapter35-svg4-m750a282fef" y="144.597661"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="176.692961" xlink:href="#chapter35-svg4-m750a282fef" y="61.536169"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="166.663471" xlink:href="#chapter35-svg4-m750a282fef" y="115.481888"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="153.641538" xlink:href="#chapter35-svg4-m750a282fef" y="92.495271"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="212.004103" xlink:href="#chapter35-svg4-m750a282fef" y="88.989612"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="199.064803" xlink:href="#chapter35-svg4-m750a282fef" y="145.988537"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="185.429172" xlink:href="#chapter35-svg4-m750a282fef" y="134.051108"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="184.199308" xlink:href="#chapter35-svg4-m750a282fef" y="128.318794"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="153.693314" xlink:href="#chapter35-svg4-m750a282fef" y="105.018956"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="167.468324" xlink:href="#chapter35-svg4-m750a282fef" y="100.879611"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="203.987517" xlink:href="#chapter35-svg4-m750a282fef" y="143.329145"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="207.03615" xlink:href="#chapter35-svg4-m750a282fef" y="42.8791"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="219.168514" xlink:href="#chapter35-svg4-m750a282fef" y="129.722374"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="226.836944" xlink:href="#chapter35-svg4-m750a282fef" y="78.843737"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="183.376587" xlink:href="#chapter35-svg4-m750a282fef" y="132.811568"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="144.744684" xlink:href="#chapter35-svg4-m750a282fef" y="115.952422"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="161.470296" xlink:href="#chapter35-svg4-m750a282fef" y="124.742096"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="190.545544" xlink:href="#chapter35-svg4-m750a282fef" y="84.721935"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="182.359001" xlink:href="#chapter35-svg4-m750a282fef" y="132.739852"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="183.892621" xlink:href="#chapter35-svg4-m750a282fef" y="148.987229"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="119.101778" xlink:href="#chapter35-svg4-m750a282fef" y="113.903615"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="178.881769" xlink:href="#chapter35-svg4-m750a282fef" y="105.800099"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="128.789397" xlink:href="#chapter35-svg4-m750a282fef" y="107.465936"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="116.707127" xlink:href="#chapter35-svg4-m750a282fef" y="115.063968"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="112.395063" xlink:href="#chapter35-svg4-m750a282fef" y="110.137083"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="181.415924" xlink:href="#chapter35-svg4-m750a282fef" y="131.122551"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="203.24896" xlink:href="#chapter35-svg4-m750a282fef" y="91.043436"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="223.645899" xlink:href="#chapter35-svg4-m750a282fef" y="99.27218"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="216.709944" xlink:href="#chapter35-svg4-m750a282fef" y="146.421975"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="239.35193" xlink:href="#chapter35-svg4-m750a282fef" y="103.723497"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="140.365973" xlink:href="#chapter35-svg4-m750a282fef" y="111.815274"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="147.481003" xlink:href="#chapter35-svg4-m750a282fef" y="99.681171"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="196.131711" xlink:href="#chapter35-svg4-m750a282fef" y="107.19887"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="132.760017" xlink:href="#chapter35-svg4-m750a282fef" y="119.329954"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="239.211644" xlink:href="#chapter35-svg4-m750a282fef" y="87.290793"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="159.910306" xlink:href="#chapter35-svg4-m750a282fef" y="147.947676"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="167.671068" xlink:href="#chapter35-svg4-m750a282fef" y="92.032952"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="190.531698" xlink:href="#chapter35-svg4-m750a282fef" y="83.243899"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="204.666715" xlink:href="#chapter35-svg4-m750a282fef" y="143.57766"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="190.250922" xlink:href="#chapter35-svg4-m750a282fef" y="152.120325"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="181.155518" xlink:href="#chapter35-svg4-m750a282fef" y="99.86156"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="207.558294" xlink:href="#chapter35-svg4-m750a282fef" y="96.134585"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="207.456538" xlink:href="#chapter35-svg4-m750a282fef" y="102.13913"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="202.958175" xlink:href="#chapter35-svg4-m750a282fef" y="146.68396"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="195.261714" xlink:href="#chapter35-svg4-m750a282fef" y="112.601521"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="179.851741" xlink:href="#chapter35-svg4-m750a282fef" y="71.903707"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="207.958863" xlink:href="#chapter35-svg4-m750a282fef" y="123.165208"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="213.17382" xlink:href="#chapter35-svg4-m750a282fef" y="149.04783"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="196.409632" xlink:href="#chapter35-svg4-m750a282fef" y="154.225937"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="217.857054" xlink:href="#chapter35-svg4-m750a282fef" y="66.013864"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="182.053909" xlink:href="#chapter35-svg4-m750a282fef" y="131.169198"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="110.939302" xlink:href="#chapter35-svg4-m750a282fef" y="96.103593"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="168.502782" xlink:href="#chapter35-svg4-m750a282fef" y="116.563009"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="199.948029" xlink:href="#chapter35-svg4-m750a282fef" y="135.962502"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="198.468618" xlink:href="#chapter35-svg4-m750a282fef" y="62.895718"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="155.74412" xlink:href="#chapter35-svg4-m750a282fef" y="116.776697"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="204.124301" xlink:href="#chapter35-svg4-m750a282fef" y="102.417547"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="145.028918" xlink:href="#chapter35-svg4-m750a282fef" y="126.660159"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="131.381527" xlink:href="#chapter35-svg4-m750a282fef" y="102.448682"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="87.660701" xlink:href="#chapter35-svg4-m750a282fef" y="120.829124"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="122.807059" xlink:href="#chapter35-svg4-m750a282fef" y="141.043844"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="104.308938" xlink:href="#chapter35-svg4-m750a282fef" y="114.846128"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="222.44224" xlink:href="#chapter35-svg4-m750a282fef" y="83.842863"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="120.333078" xlink:href="#chapter35-svg4-m750a282fef" y="91.724475"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="200.995814" xlink:href="#chapter35-svg4-m750a282fef" y="104.109604"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="210.581604" xlink:href="#chapter35-svg4-m750a282fef" y="97.48648"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="60.280526" xlink:href="#chapter35-svg4-m750a282fef" y="85.705869"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="196.414108" xlink:href="#chapter35-svg4-m750a282fef" y="133.093927"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="120.102217" xlink:href="#chapter35-svg4-m750a282fef" y="128.207919"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="199.503728" xlink:href="#chapter35-svg4-m750a282fef" y="93.36083"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="160.463744" xlink:href="#chapter35-svg4-m750a282fef" y="104.311494"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="174.551064" xlink:href="#chapter35-svg4-m750a282fef" y="92.171768"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="136.653186" xlink:href="#chapter35-svg4-m750a282fef" y="85.392648"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="240.724966" xlink:href="#chapter35-svg4-m750a282fef" y="63.603721"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="238.970016" xlink:href="#chapter35-svg4-m750a282fef" y="76.263838"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="184.615293" xlink:href="#chapter35-svg4-m750a282fef" y="120.373873"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="195.463345" xlink:href="#chapter35-svg4-m750a282fef" y="105.154191"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="188.820656" xlink:href="#chapter35-svg4-m750a282fef" y="108.912886"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="168.210247" xlink:href="#chapter35-svg4-m750a282fef" y="88.520176"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="177.477364" xlink:href="#chapter35-svg4-m750a282fef" y="75.276537"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="180.464753" xlink:href="#chapter35-svg4-m750a282fef" y="134.660221"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="207.154959" xlink:href="#chapter35-svg4-m750a282fef" y="90.466272"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="127.609378" xlink:href="#chapter35-svg4-m750a282fef" y="123.29555"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="143.472957" xlink:href="#chapter35-svg4-m750a282fef" y="98.398532"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="214.809016" xlink:href="#chapter35-svg4-m750a282fef" y="137.6715"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="136.67519" xlink:href="#chapter35-svg4-m750a282fef" y="136.278615"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="181.579504" xlink:href="#chapter35-svg4-m750a282fef" y="107.475182"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="186.929368" xlink:href="#chapter35-svg4-m750a282fef" y="123.334169"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="180.426146" xlink:href="#chapter35-svg4-m750a282fef" y="92.309196"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="124.304259" xlink:href="#chapter35-svg4-m750a282fef" y="112.886387"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="104.218961" xlink:href="#chapter35-svg4-m750a282fef" y="132.299741"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="196.810779" xlink:href="#chapter35-svg4-m750a282fef" y="130.634776"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="160.341646" xlink:href="#chapter35-svg4-m750a282fef" y="98.427092"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="190.076333" xlink:href="#chapter35-svg4-m750a282fef" y="107.92337"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="193.560041" xlink:href="#chapter35-svg4-m750a282fef" y="92.843328"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="249.376913" xlink:href="#chapter35-svg4-m750a282fef" y="128.952256"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="251.00618" xlink:href="#chapter35-svg4-m750a282fef" y="146.762534"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="170.207011" xlink:href="#chapter35-svg4-m750a282fef" y="102.717365"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="182.778273" xlink:href="#chapter35-svg4-m750a282fef" y="97.925039"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="126.256183" xlink:href="#chapter35-svg4-m750a282fef" y="103.809605"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="149.141396" xlink:href="#chapter35-svg4-m750a282fef" y="76.075982"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="152.97363" xlink:href="#chapter35-svg4-m750a282fef" y="102.803128"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="170.996411" xlink:href="#chapter35-svg4-m750a282fef" y="79.611937"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="144.414877" xlink:href="#chapter35-svg4-m750a282fef" y="127.795812"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="223.010309" xlink:href="#chapter35-svg4-m750a282fef" y="98.155117"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="208.508205" xlink:href="#chapter35-svg4-m750a282fef" y="145.441746"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="191.621105" xlink:href="#chapter35-svg4-m750a282fef" y="135.858329"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="132.952805" xlink:href="#chapter35-svg4-m750a282fef" y="136.955763"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="191.048213" xlink:href="#chapter35-svg4-m750a282fef" y="82.342821"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="164.632664" xlink:href="#chapter35-svg4-m750a282fef" y="65.476717"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="229.51862" xlink:href="#chapter35-svg4-m750a282fef" y="111.342679"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="175.907207" xlink:href="#chapter35-svg4-m750a282fef" y="107.453553"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="149.054718" xlink:href="#chapter35-svg4-m750a282fef" y="151.927331"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="131.760992" xlink:href="#chapter35-svg4-m750a282fef" y="108.211156"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="169.39123" xlink:href="#chapter35-svg4-m750a282fef" y="164.256856"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="110.817474" xlink:href="#chapter35-svg4-m750a282fef" y="99.799187"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="192.675579" xlink:href="#chapter35-svg4-m750a282fef" y="117.505177"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="190.040978" xlink:href="#chapter35-svg4-m750a282fef" y="132.214042"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="171.152609" xlink:href="#chapter35-svg4-m750a282fef" y="116.738841"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="226.243806" xlink:href="#chapter35-svg4-m750a282fef" y="120.523023"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="208.191392" xlink:href="#chapter35-svg4-m750a282fef" y="108.632562"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="139.053863" xlink:href="#chapter35-svg4-m750a282fef" y="77.687591"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="173.888444" xlink:href="#chapter35-svg4-m750a282fef" y="133.963075"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="163.01272" xlink:href="#chapter35-svg4-m750a282fef" y="108.97626"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="151.604888" xlink:href="#chapter35-svg4-m750a282fef" y="72.248775"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="125.437806" xlink:href="#chapter35-svg4-m750a282fef" y="82.434398"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="80.366164" xlink:href="#chapter35-svg4-m750a282fef" y="128.75625"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="205.536225" xlink:href="#chapter35-svg4-m750a282fef" y="115.277786"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="130.514154" xlink:href="#chapter35-svg4-m750a282fef" y="94.772975"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="185.178636" xlink:href="#chapter35-svg4-m750a282fef" y="96.579521"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="119.108049" xlink:href="#chapter35-svg4-m750a282fef" y="103.094542"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="194.587725" xlink:href="#chapter35-svg4-m750a282fef" y="71.255445"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="223.909953" xlink:href="#chapter35-svg4-m750a282fef" y="71.176062"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="160.16062" xlink:href="#chapter35-svg4-m750a282fef" y="88.108148"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="242.538597" xlink:href="#chapter35-svg4-m750a282fef" y="135.988939"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="195.382244" xlink:href="#chapter35-svg4-m750a282fef" y="141.254106"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="162.767141" xlink:href="#chapter35-svg4-m750a282fef" y="82.472569"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="184.197803" xlink:href="#chapter35-svg4-m750a282fef" y="95.795759"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="218.352092" xlink:href="#chapter35-svg4-m750a282fef" y="141.808665"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="122.146562" xlink:href="#chapter35-svg4-m750a282fef" y="137.111721"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="148.472523" xlink:href="#chapter35-svg4-m750a282fef" y="68.236195"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="224.433566" xlink:href="#chapter35-svg4-m750a282fef" y="102.057112"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="220.722321" xlink:href="#chapter35-svg4-m750a282fef" y="112.965423"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="112.612501" xlink:href="#chapter35-svg4-m750a282fef" y="154.630338"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="222.980259" xlink:href="#chapter35-svg4-m750a282fef" y="130.318535"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="144.401787" xlink:href="#chapter35-svg4-m750a282fef" y="87.325784"></use>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="181.719775" xlink:href="#chapter35-svg4-m750a282fef" y="107.228697"></use>
+</g>
+</g>
+<g id="chapter35-svg4-PathCollection_2">
+<defs>
+<path d="M 0 1.581139 
+C 0.419323 1.581139 0.821528 1.41454 1.118034 1.118034 
+C 1.41454 0.821528 1.581139 0.419323 1.581139 0 
+C 1.581139 -0.419323 1.41454 -0.821528 1.118034 -1.118034 
+C 0.821528 -1.41454 0.419323 -1.581139 0 -1.581139 
+C -0.419323 -1.581139 -0.821528 -1.41454 -1.118034 -1.118034 
+C -1.41454 -0.821528 -1.581139 -0.419323 -1.581139 0 
+C -1.581139 0.419323 -1.41454 0.821528 -1.118034 1.118034 
+C -0.821528 1.41454 -0.419323 1.581139 0 1.581139 
+z
+" id="chapter35-svg4-m3edbbc8b84" style="stroke: #ff7f0e; stroke-opacity: 0.45"></path>
+</defs>
+<g clip-path="url(#chapter35-svg4-pb91f34cc36)">
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="214.653091" xlink:href="#chapter35-svg4-m3edbbc8b84" y="98.248544"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="305.930218" xlink:href="#chapter35-svg4-m3edbbc8b84" y="50.295274"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="317.812289" xlink:href="#chapter35-svg4-m3edbbc8b84" y="55.623157"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="203.290562" xlink:href="#chapter35-svg4-m3edbbc8b84" y="117.466256"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="279.305324" xlink:href="#chapter35-svg4-m3edbbc8b84" y="69.542561"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="236.089014" xlink:href="#chapter35-svg4-m3edbbc8b84" y="131.876423"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="343.618074" xlink:href="#chapter35-svg4-m3edbbc8b84" y="42.001665"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="278.628634" xlink:href="#chapter35-svg4-m3edbbc8b84" y="86.646741"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="227.190343" xlink:href="#chapter35-svg4-m3edbbc8b84" y="93.61206"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="298.009081" xlink:href="#chapter35-svg4-m3edbbc8b84" y="81.194172"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="237.622571" xlink:href="#chapter35-svg4-m3edbbc8b84" y="109.47264"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="216.574371" xlink:href="#chapter35-svg4-m3edbbc8b84" y="122.726375"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="255.266113" xlink:href="#chapter35-svg4-m3edbbc8b84" y="116.699126"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="345.582452" xlink:href="#chapter35-svg4-m3edbbc8b84" y="63.716929"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="244.345944" xlink:href="#chapter35-svg4-m3edbbc8b84" y="66.399687"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="243.226365" xlink:href="#chapter35-svg4-m3edbbc8b84" y="94.626758"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="284.931468" xlink:href="#chapter35-svg4-m3edbbc8b84" y="46.147549"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="224.141476" xlink:href="#chapter35-svg4-m3edbbc8b84" y="81.32833"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="215.658752" xlink:href="#chapter35-svg4-m3edbbc8b84" y="79.805512"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="305.623033" xlink:href="#chapter35-svg4-m3edbbc8b84" y="53.348891"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="247.809808" xlink:href="#chapter35-svg4-m3edbbc8b84" y="67.541936"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="297.210719" xlink:href="#chapter35-svg4-m3edbbc8b84" y="46.221837"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="208.407997" xlink:href="#chapter35-svg4-m3edbbc8b84" y="113.45334"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="273.738537" xlink:href="#chapter35-svg4-m3edbbc8b84" y="69.352445"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="194.89954" xlink:href="#chapter35-svg4-m3edbbc8b84" y="146.556356"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="281.375636" xlink:href="#chapter35-svg4-m3edbbc8b84" y="81.126653"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="269.879238" xlink:href="#chapter35-svg4-m3edbbc8b84" y="98.764703"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="265.259254" xlink:href="#chapter35-svg4-m3edbbc8b84" y="97.703549"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="212.918009" xlink:href="#chapter35-svg4-m3edbbc8b84" y="130.021715"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="273.780374" xlink:href="#chapter35-svg4-m3edbbc8b84" y="105.526188"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="187.890953" xlink:href="#chapter35-svg4-m3edbbc8b84" y="138.896947"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="271.247898" xlink:href="#chapter35-svg4-m3edbbc8b84" y="70.429747"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="286.318785" xlink:href="#chapter35-svg4-m3edbbc8b84" y="57.548901"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="237.64163" xlink:href="#chapter35-svg4-m3edbbc8b84" y="105.849779"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="322.037994" xlink:href="#chapter35-svg4-m3edbbc8b84" y="55.867707"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="271.789625" xlink:href="#chapter35-svg4-m3edbbc8b84" y="95.304279"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="277.907266" xlink:href="#chapter35-svg4-m3edbbc8b84" y="97.108087"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="240.401902" xlink:href="#chapter35-svg4-m3edbbc8b84" y="101.445567"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="249.889952" xlink:href="#chapter35-svg4-m3edbbc8b84" y="82.875798"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="289.285385" xlink:href="#chapter35-svg4-m3edbbc8b84" y="57.107149"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="259.719124" xlink:href="#chapter35-svg4-m3edbbc8b84" y="97.37274"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="253.932347" xlink:href="#chapter35-svg4-m3edbbc8b84" y="97.825805"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="223.325341" xlink:href="#chapter35-svg4-m3edbbc8b84" y="80.658784"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="209.027814" xlink:href="#chapter35-svg4-m3edbbc8b84" y="103.294121"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="237.644041" xlink:href="#chapter35-svg4-m3edbbc8b84" y="128.083856"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="338.420875" xlink:href="#chapter35-svg4-m3edbbc8b84" y="52.632823"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="211.555479" xlink:href="#chapter35-svg4-m3edbbc8b84" y="76.627546"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="244.060161" xlink:href="#chapter35-svg4-m3edbbc8b84" y="94.509475"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="319.785445" xlink:href="#chapter35-svg4-m3edbbc8b84" y="72.105193"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="216.998206" xlink:href="#chapter35-svg4-m3edbbc8b84" y="99.227335"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="273.900471" xlink:href="#chapter35-svg4-m3edbbc8b84" y="93.993289"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="196.267492" xlink:href="#chapter35-svg4-m3edbbc8b84" y="143.889363"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="278.226402" xlink:href="#chapter35-svg4-m3edbbc8b84" y="56.898751"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="307.508361" xlink:href="#chapter35-svg4-m3edbbc8b84" y="54.59005"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="275.248504" xlink:href="#chapter35-svg4-m3edbbc8b84" y="114.538668"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="258.025015" xlink:href="#chapter35-svg4-m3edbbc8b84" y="96.206029"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="314.820596" xlink:href="#chapter35-svg4-m3edbbc8b84" y="60.932955"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="264.653187" xlink:href="#chapter35-svg4-m3edbbc8b84" y="81.245684"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="277.443257" xlink:href="#chapter35-svg4-m3edbbc8b84" y="68.274621"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="347.50042" xlink:href="#chapter35-svg4-m3edbbc8b84" y="15.768"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="277.730335" xlink:href="#chapter35-svg4-m3edbbc8b84" y="88.779932"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="331.42131" xlink:href="#chapter35-svg4-m3edbbc8b84" y="33.907423"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="264.959501" xlink:href="#chapter35-svg4-m3edbbc8b84" y="92.108406"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="220.561072" xlink:href="#chapter35-svg4-m3edbbc8b84" y="90.067585"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="304.795247" xlink:href="#chapter35-svg4-m3edbbc8b84" y="61.29741"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="261.207854" xlink:href="#chapter35-svg4-m3edbbc8b84" y="55.948348"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="282.998792" xlink:href="#chapter35-svg4-m3edbbc8b84" y="76.091887"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="233.376176" xlink:href="#chapter35-svg4-m3edbbc8b84" y="84.488937"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="295.227002" xlink:href="#chapter35-svg4-m3edbbc8b84" y="84.48175"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="171.347167" xlink:href="#chapter35-svg4-m3edbbc8b84" y="122.249254"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="288.408382" xlink:href="#chapter35-svg4-m3edbbc8b84" y="53.443163"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="290.200775" xlink:href="#chapter35-svg4-m3edbbc8b84" y="98.387648"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="306.60443" xlink:href="#chapter35-svg4-m3edbbc8b84" y="67.345583"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="322.152595" xlink:href="#chapter35-svg4-m3edbbc8b84" y="47.626018"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="247.499766" xlink:href="#chapter35-svg4-m3edbbc8b84" y="110.846483"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="240.386075" xlink:href="#chapter35-svg4-m3edbbc8b84" y="90.328867"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="254.756116" xlink:href="#chapter35-svg4-m3edbbc8b84" y="68.684661"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="259.899217" xlink:href="#chapter35-svg4-m3edbbc8b84" y="80.512305"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="233.298515" xlink:href="#chapter35-svg4-m3edbbc8b84" y="111.365405"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="237.243678" xlink:href="#chapter35-svg4-m3edbbc8b84" y="113.777764"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="303.160839" xlink:href="#chapter35-svg4-m3edbbc8b84" y="38.710648"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="236.797575" xlink:href="#chapter35-svg4-m3edbbc8b84" y="104.360745"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="312.59179" xlink:href="#chapter35-svg4-m3edbbc8b84" y="48.412826"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="292.916411" xlink:href="#chapter35-svg4-m3edbbc8b84" y="85.623184"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="339.680241" xlink:href="#chapter35-svg4-m3edbbc8b84" y="36.979869"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="276.295192" xlink:href="#chapter35-svg4-m3edbbc8b84" y="81.409242"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="257.501013" xlink:href="#chapter35-svg4-m3edbbc8b84" y="88.168731"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="251.540711" xlink:href="#chapter35-svg4-m3edbbc8b84" y="85.32489"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="296.597007" xlink:href="#chapter35-svg4-m3edbbc8b84" y="75.31796"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="255.67053" xlink:href="#chapter35-svg4-m3edbbc8b84" y="75.029351"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="283.426226" xlink:href="#chapter35-svg4-m3edbbc8b84" y="21.859609"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="224.811298" xlink:href="#chapter35-svg4-m3edbbc8b84" y="92.869478"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="251.101551" xlink:href="#chapter35-svg4-m3edbbc8b84" y="92.233253"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="258.894541" xlink:href="#chapter35-svg4-m3edbbc8b84" y="87.770774"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="293.044084" xlink:href="#chapter35-svg4-m3edbbc8b84" y="62.917722"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="302.101041" xlink:href="#chapter35-svg4-m3edbbc8b84" y="16.464131"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="302.593605" xlink:href="#chapter35-svg4-m3edbbc8b84" y="63.998409"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="315.538089" xlink:href="#chapter35-svg4-m3edbbc8b84" y="101.430718"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="318.573883" xlink:href="#chapter35-svg4-m3edbbc8b84" y="24.185818"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="266.328582" xlink:href="#chapter35-svg4-m3edbbc8b84" y="75.409311"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="256.516097" xlink:href="#chapter35-svg4-m3edbbc8b84" y="102.989383"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="290.151138" xlink:href="#chapter35-svg4-m3edbbc8b84" y="61.549973"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="245.591359" xlink:href="#chapter35-svg4-m3edbbc8b84" y="72.457329"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="222.603512" xlink:href="#chapter35-svg4-m3edbbc8b84" y="88.725748"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="294.295945" xlink:href="#chapter35-svg4-m3edbbc8b84" y="57.809731"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="283.213799" xlink:href="#chapter35-svg4-m3edbbc8b84" y="66.618678"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="212.084952" xlink:href="#chapter35-svg4-m3edbbc8b84" y="146.109745"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="263.117509" xlink:href="#chapter35-svg4-m3edbbc8b84" y="58.892434"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="271.862206" xlink:href="#chapter35-svg4-m3edbbc8b84" y="71.541679"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="280.404751" xlink:href="#chapter35-svg4-m3edbbc8b84" y="67.671557"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="277.827939" xlink:href="#chapter35-svg4-m3edbbc8b84" y="65.180265"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="183.291736" xlink:href="#chapter35-svg4-m3edbbc8b84" y="123.970469"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="204.192503" xlink:href="#chapter35-svg4-m3edbbc8b84" y="98.115967"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="200.302645" xlink:href="#chapter35-svg4-m3edbbc8b84" y="129.290968"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="288.33496" xlink:href="#chapter35-svg4-m3edbbc8b84" y="75.845373"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="281.08184" xlink:href="#chapter35-svg4-m3edbbc8b84" y="91.277458"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="364.644162" xlink:href="#chapter35-svg4-m3edbbc8b84" y="31.849377"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="212.269902" xlink:href="#chapter35-svg4-m3edbbc8b84" y="96.166947"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="236.624852" xlink:href="#chapter35-svg4-m3edbbc8b84" y="96.744361"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="258.213859" xlink:href="#chapter35-svg4-m3edbbc8b84" y="81.841755"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="261.944487" xlink:href="#chapter35-svg4-m3edbbc8b84" y="58.232572"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="304.817571" xlink:href="#chapter35-svg4-m3edbbc8b84" y="74.800543"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="293.534428" xlink:href="#chapter35-svg4-m3edbbc8b84" y="71.853464"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="254.783346" xlink:href="#chapter35-svg4-m3edbbc8b84" y="95.692618"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="212.239882" xlink:href="#chapter35-svg4-m3edbbc8b84" y="101.429918"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="232.224987" xlink:href="#chapter35-svg4-m3edbbc8b84" y="97.397658"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="311.862178" xlink:href="#chapter35-svg4-m3edbbc8b84" y="75.691967"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="252.646662" xlink:href="#chapter35-svg4-m3edbbc8b84" y="88.257493"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="244.689275" xlink:href="#chapter35-svg4-m3edbbc8b84" y="99.531757"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="227.953728" xlink:href="#chapter35-svg4-m3edbbc8b84" y="133.887297"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="262.701647" xlink:href="#chapter35-svg4-m3edbbc8b84" y="51.33991"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="225.441903" xlink:href="#chapter35-svg4-m3edbbc8b84" y="97.896395"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="267.774014" xlink:href="#chapter35-svg4-m3edbbc8b84" y="92.272578"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="248.645083" xlink:href="#chapter35-svg4-m3edbbc8b84" y="78.229344"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="260.31703" xlink:href="#chapter35-svg4-m3edbbc8b84" y="87.330248"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="293.286467" xlink:href="#chapter35-svg4-m3edbbc8b84" y="74.272362"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="218.001205" xlink:href="#chapter35-svg4-m3edbbc8b84" y="112.343995"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="241.238943" xlink:href="#chapter35-svg4-m3edbbc8b84" y="96.673247"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="358.289848" xlink:href="#chapter35-svg4-m3edbbc8b84" y="46.826504"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="229.856304" xlink:href="#chapter35-svg4-m3edbbc8b84" y="88.293494"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="307.106541" xlink:href="#chapter35-svg4-m3edbbc8b84" y="69.496976"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="253.570341" xlink:href="#chapter35-svg4-m3edbbc8b84" y="103.364852"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="298.70675" xlink:href="#chapter35-svg4-m3edbbc8b84" y="66.108382"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="274.238907" xlink:href="#chapter35-svg4-m3edbbc8b84" y="92.540998"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="272.10595" xlink:href="#chapter35-svg4-m3edbbc8b84" y="81.593075"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="271.454865" xlink:href="#chapter35-svg4-m3edbbc8b84" y="75.454297"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="183.213146" xlink:href="#chapter35-svg4-m3edbbc8b84" y="147.547723"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="339.280988" xlink:href="#chapter35-svg4-m3edbbc8b84" y="42.472276"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="295.205629" xlink:href="#chapter35-svg4-m3edbbc8b84" y="65.276578"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="259.626536" xlink:href="#chapter35-svg4-m3edbbc8b84" y="74.147604"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="252.95015" xlink:href="#chapter35-svg4-m3edbbc8b84" y="86.873584"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="287.336894" xlink:href="#chapter35-svg4-m3edbbc8b84" y="85.82606"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="303.557975" xlink:href="#chapter35-svg4-m3edbbc8b84" y="75.141237"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="184.66765" xlink:href="#chapter35-svg4-m3edbbc8b84" y="145.481088"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="256.471397" xlink:href="#chapter35-svg4-m3edbbc8b84" y="57.474502"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="246.441907" xlink:href="#chapter35-svg4-m3edbbc8b84" y="95.173445"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="233.419973" xlink:href="#chapter35-svg4-m3edbbc8b84" y="88.303721"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="291.782539" xlink:href="#chapter35-svg4-m3edbbc8b84" y="55.175745"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="278.843238" xlink:href="#chapter35-svg4-m3edbbc8b84" y="96.25342"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="265.207608" xlink:href="#chapter35-svg4-m3edbbc8b84" y="96.33944"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="263.977744" xlink:href="#chapter35-svg4-m3edbbc8b84" y="93.553826"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="233.471749" xlink:href="#chapter35-svg4-m3edbbc8b84" y="95.790409"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="247.246759" xlink:href="#chapter35-svg4-m3edbbc8b84" y="85.984233"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="283.765952" xlink:href="#chapter35-svg4-m3edbbc8b84" y="92.040951"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="286.814586" xlink:href="#chapter35-svg4-m3edbbc8b84" y="30.15032"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="298.94695" xlink:href="#chapter35-svg4-m3edbbc8b84" y="75.80692"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="306.615379" xlink:href="#chapter35-svg4-m3edbbc8b84" y="41.203326"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="263.155022" xlink:href="#chapter35-svg4-m3edbbc8b84" y="96.686836"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="224.523119" xlink:href="#chapter35-svg4-m3edbbc8b84" y="107.107432"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="241.248732" xlink:href="#chapter35-svg4-m3edbbc8b84" y="103.490177"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="270.32398" xlink:href="#chapter35-svg4-m3edbbc8b84" y="64.022156"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="262.137437" xlink:href="#chapter35-svg4-m3edbbc8b84" y="97.184738"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="263.671056" xlink:href="#chapter35-svg4-m3edbbc8b84" y="106.117917"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="198.880213" xlink:href="#chapter35-svg4-m3edbbc8b84" y="119.509495"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="258.660205" xlink:href="#chapter35-svg4-m3edbbc8b84" y="82.869326"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="208.567832" xlink:href="#chapter35-svg4-m3edbbc8b84" y="110.497109"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="196.485562" xlink:href="#chapter35-svg4-m3edbbc8b84" y="121.478664"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="192.173498" xlink:href="#chapter35-svg4-m3edbbc8b84" y="120.814756"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="261.194359" xlink:href="#chapter35-svg4-m3edbbc8b84" y="96.715682"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="283.027396" xlink:href="#chapter35-svg4-m3edbbc8b84" y="61.06213"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="303.424334" xlink:href="#chapter35-svg4-m3edbbc8b84" y="55.156699"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="296.488379" xlink:href="#chapter35-svg4-m3edbbc8b84" y="87.133616"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="319.130365" xlink:href="#chapter35-svg4-m3edbbc8b84" y="49.478422"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="220.144408" xlink:href="#chapter35-svg4-m3edbbc8b84" y="106.952794"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="227.259439" xlink:href="#chapter35-svg4-m3edbbc8b84" y="95.890099"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="275.910146" xlink:href="#chapter35-svg4-m3edbbc8b84" y="74.538803"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="212.538452" xlink:href="#chapter35-svg4-m3edbbc8b84" y="115.504804"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="318.990079" xlink:href="#chapter35-svg4-m3edbbc8b84" y="39.693373"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="239.688741" xlink:href="#chapter35-svg4-m3edbbc8b84" y="118.24279"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="247.449504" xlink:href="#chapter35-svg4-m3edbbc8b84" y="80.568462"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="270.310134" xlink:href="#chapter35-svg4-m3edbbc8b84" y="63.142695"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="284.44515" xlink:href="#chapter35-svg4-m3edbbc8b84" y="91.829009"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="270.029358" xlink:href="#chapter35-svg4-m3edbbc8b84" y="104.617806"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="260.933954" xlink:href="#chapter35-svg4-m3edbbc8b84" y="78.097514"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="287.33673" xlink:href="#chapter35-svg4-m3edbbc8b84" y="61.826048"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="287.234974" xlink:href="#chapter35-svg4-m3edbbc8b84" y="65.482867"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="282.736611" xlink:href="#chapter35-svg4-m3edbbc8b84" y="94.601021"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="275.040149" xlink:href="#chapter35-svg4-m3edbbc8b84" y="78.24287"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="259.630176" xlink:href="#chapter35-svg4-m3edbbc8b84" y="62.015869"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="287.737298" xlink:href="#chapter35-svg4-m3edbbc8b84" y="77.831486"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="292.952255" xlink:href="#chapter35-svg4-m3edbbc8b84" y="90.588874"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="276.188068" xlink:href="#chapter35-svg4-m3edbbc8b84" y="102.607305"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="297.635489" xlink:href="#chapter35-svg4-m3edbbc8b84" y="38.278964"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="261.832345" xlink:href="#chapter35-svg4-m3edbbc8b84" y="96.404527"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="190.717738" xlink:href="#chapter35-svg4-m3edbbc8b84" y="113.16852"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="248.281217" xlink:href="#chapter35-svg4-m3edbbc8b84" y="94.84437"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="279.726464" xlink:href="#chapter35-svg4-m3edbbc8b84" y="89.76829"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="278.247053" xlink:href="#chapter35-svg4-m3edbbc8b84" y="46.714651"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="235.522556" xlink:href="#chapter35-svg4-m3edbbc8b84" y="101.754878"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="283.902737" xlink:href="#chapter35-svg4-m3edbbc8b84" y="67.42128"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="224.807353" xlink:href="#chapter35-svg4-m3edbbc8b84" y="113.380981"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="211.159963" xlink:href="#chapter35-svg4-m3edbbc8b84" y="106.108823"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="167.439137" xlink:href="#chapter35-svg4-m3edbbc8b84" y="140.37836"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="202.585494" xlink:href="#chapter35-svg4-m3edbbc8b84" y="133.823966"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="184.087373" xlink:href="#chapter35-svg4-m3edbbc8b84" y="127.938634"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="302.220675" xlink:href="#chapter35-svg4-m3edbbc8b84" y="46.538954"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="200.111513" xlink:href="#chapter35-svg4-m3edbbc8b84" y="105.547472"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="280.774249" xlink:href="#chapter35-svg4-m3edbbc8b84" y="70.099566"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="290.360039" xlink:href="#chapter35-svg4-m3edbbc8b84" y="61.030044"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="140.058961" xlink:href="#chapter35-svg4-m3edbbc8b84" y="133.859258"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="276.192543" xlink:href="#chapter35-svg4-m3edbbc8b84" y="89.92572"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="199.880652" xlink:href="#chapter35-svg4-m3edbbc8b84" y="127.560261"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="279.282164" xlink:href="#chapter35-svg4-m3edbbc8b84" y="64.44347"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="240.24218" xlink:href="#chapter35-svg4-m3edbbc8b84" y="91.766882"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="254.3295" xlink:href="#chapter35-svg4-m3edbbc8b84" y="76.994459"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="216.431621" xlink:href="#chapter35-svg4-m3edbbc8b84" y="93.072876"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="320.503401" xlink:href="#chapter35-svg4-m3edbbc8b84" y="24.676673"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="318.748452" xlink:href="#chapter35-svg4-m3edbbc8b84" y="33.205645"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="264.393728" xlink:href="#chapter35-svg4-m3edbbc8b84" y="88.565743"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="275.24178" xlink:href="#chapter35-svg4-m3edbbc8b84" y="73.667288"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="268.599091" xlink:href="#chapter35-svg4-m3edbbc8b84" y="79.453649"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="247.988682" xlink:href="#chapter35-svg4-m3edbbc8b84" y="78.174177"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="257.2558" xlink:href="#chapter35-svg4-m3edbbc8b84" y="65.301747"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="260.243188" xlink:href="#chapter35-svg4-m3edbbc8b84" y="99.34391"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="286.933394" xlink:href="#chapter35-svg4-m3edbbc8b84" y="58.639467"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="207.387813" xlink:href="#chapter35-svg4-m3edbbc8b84" y="120.622156"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="223.251393" xlink:href="#chapter35-svg4-m3edbbc8b84" y="97.251128"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="294.587452" xlink:href="#chapter35-svg4-m3edbbc8b84" y="82.893833"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="216.453625" xlink:href="#chapter35-svg4-m3edbbc8b84" y="123.592759"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="261.357939" xlink:href="#chapter35-svg4-m3edbbc8b84" y="82.440304"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="266.707804" xlink:href="#chapter35-svg4-m3edbbc8b84" y="89.111796"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="260.204582" xlink:href="#chapter35-svg4-m3edbbc8b84" y="73.953818"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="204.082694" xlink:href="#chapter35-svg4-m3edbbc8b84" y="116.133605"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="183.997397" xlink:href="#chapter35-svg4-m3edbbc8b84" y="138.458632"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="276.589214" xlink:href="#chapter35-svg4-m3edbbc8b84" y="88.239365"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="240.120082" xlink:href="#chapter35-svg4-m3edbbc8b84" y="88.301146"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="269.854768" xlink:href="#chapter35-svg4-m3edbbc8b84" y="78.192442"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="273.338477" xlink:href="#chapter35-svg4-m3edbbc8b84" y="67.292535"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="329.155349" xlink:href="#chapter35-svg4-m3edbbc8b84" y="59.286561"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="330.784615" xlink:href="#chapter35-svg4-m3edbbc8b84" y="69.106636"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="249.985446" xlink:href="#chapter35-svg4-m3edbbc8b84" y="85.631044"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="262.556709" xlink:href="#chapter35-svg4-m3edbbc8b84" y="76.072972"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="206.034619" xlink:href="#chapter35-svg4-m3edbbc8b84" y="109.649925"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="228.919831" xlink:href="#chapter35-svg4-m3edbbc8b84" y="80.844349"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="232.752065" xlink:href="#chapter35-svg4-m3edbbc8b84" y="94.843484"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="250.774847" xlink:href="#chapter35-svg4-m3edbbc8b84" y="71.348155"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="224.193312" xlink:href="#chapter35-svg4-m3edbbc8b84" y="114.388786"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="302.788744" xlink:href="#chapter35-svg4-m3edbbc8b84" y="54.824331"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="288.28664" xlink:href="#chapter35-svg4-m3edbbc8b84" y="90.905388"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="271.399541" xlink:href="#chapter35-svg4-m3edbbc8b84" y="94.132242"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="212.731241" xlink:href="#chapter35-svg4-m3edbbc8b84" y="125.977806"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="270.826648" xlink:href="#chapter35-svg4-m3edbbc8b84" y="62.327478"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="244.4111" xlink:href="#chapter35-svg4-m3edbbc8b84" y="66.249886"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="309.297056" xlink:href="#chapter35-svg4-m3edbbc8b84" y="59.277157"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="255.685642" xlink:href="#chapter35-svg4-m3edbbc8b84" y="85.442626"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="228.833153" xlink:href="#chapter35-svg4-m3edbbc8b84" y="126.401235"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="211.539427" xlink:href="#chapter35-svg4-m3edbbc8b84" y="109.36459"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="249.169666" xlink:href="#chapter35-svg4-m3edbbc8b84" y="122.988394"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="190.595909" xlink:href="#chapter35-svg4-m3edbbc8b84" y="115.450639"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="272.454015" xlink:href="#chapter35-svg4-m3edbbc8b84" y="82.55981"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="269.819414" xlink:href="#chapter35-svg4-m3edbbc8b84" y="92.785639"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="250.931044" xlink:href="#chapter35-svg4-m3edbbc8b84" y="93.541265"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="306.022241" xlink:href="#chapter35-svg4-m3edbbc8b84" y="66.5262"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="287.969828" xlink:href="#chapter35-svg4-m3edbbc8b84" y="68.98829"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="218.832299" xlink:href="#chapter35-svg4-m3edbbc8b84" y="87.173681"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="253.66688" xlink:href="#chapter35-svg4-m3edbbc8b84" y="102.421481"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="242.791155" xlink:href="#chapter35-svg4-m3edbbc8b84" y="93.210748"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="231.383324" xlink:href="#chapter35-svg4-m3edbbc8b84" y="77.238472"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="205.216241" xlink:href="#chapter35-svg4-m3edbbc8b84" y="97.259837"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="160.144599" xlink:href="#chapter35-svg4-m3edbbc8b84" y="149.012292"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="285.31466" xlink:href="#chapter35-svg4-m3edbbc8b84" y="74.386867"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="210.292589" xlink:href="#chapter35-svg4-m3edbbc8b84" y="101.96448"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="264.957072" xlink:href="#chapter35-svg4-m3edbbc8b84" y="73.989668"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="198.886484" xlink:href="#chapter35-svg4-m3edbbc8b84" y="113.020718"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="274.366161" xlink:href="#chapter35-svg4-m3edbbc8b84" y="53.793505"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="303.688389" xlink:href="#chapter35-svg4-m3edbbc8b84" y="38.158661"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="239.939056" xlink:href="#chapter35-svg4-m3edbbc8b84" y="82.20601"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="322.317032" xlink:href="#chapter35-svg4-m3edbbc8b84" y="67.143707"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="275.160679" xlink:href="#chapter35-svg4-m3edbbc8b84" y="95.370349"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="242.545576" xlink:href="#chapter35-svg4-m3edbbc8b84" y="77.439079"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="263.976239" xlink:href="#chapter35-svg4-m3edbbc8b84" y="74.040806"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="298.130527" xlink:href="#chapter35-svg4-m3edbbc8b84" y="83.492691"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="201.924997" xlink:href="#chapter35-svg4-m3edbbc8b84" y="131.815802"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="228.250959" xlink:href="#chapter35-svg4-m3edbbc8b84" y="76.496038"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="304.212001" xlink:href="#chapter35-svg4-m3edbbc8b84" y="56.408948"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="300.500756" xlink:href="#chapter35-svg4-m3edbbc8b84" y="64.926771"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="192.390936" xlink:href="#chapter35-svg4-m3edbbc8b84" y="147.395122"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="302.758695" xlink:href="#chapter35-svg4-m3edbbc8b84" y="74.138355"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="224.180222" xlink:href="#chapter35-svg4-m3edbbc8b84" y="90.113728"></use>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="261.49821" xlink:href="#chapter35-svg4-m3edbbc8b84" y="82.217847"></use>
+</g>
+</g>
+<g id="chapter35-svg4-matplotlib.axis_1">
+<g id="chapter35-svg4-xtick_1">
+<g id="chapter35-svg4-line2d_1">
+<defs>
+<path d="M 0 0 
+L 0 3.5 
+" id="chapter35-svg4-m6a44033d8d" style="stroke: #000000; stroke-width: 0.8"></path>
+</defs>
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="60.608019" xlink:href="#chapter35-svg4-m6a44033d8d" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_1">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 60.608019 211.054281)" x="60.608019" y="211.054281">−3</text>
+</g>
+</g>
+<g id="chapter35-svg4-xtick_2">
+<g id="chapter35-svg4-line2d_2">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="100.497237" xlink:href="#chapter35-svg4-m6a44033d8d" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_2">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 100.497237 211.054281)" x="100.497237" y="211.054281">−2</text>
+</g>
+</g>
+<g id="chapter35-svg4-xtick_3">
+<g id="chapter35-svg4-line2d_3">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="140.386454" xlink:href="#chapter35-svg4-m6a44033d8d" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_3">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 140.386454 211.054281)" x="140.386454" y="211.054281">−1</text>
+</g>
+</g>
+<g id="chapter35-svg4-xtick_4">
+<g id="chapter35-svg4-line2d_4">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="180.275672" xlink:href="#chapter35-svg4-m6a44033d8d" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_4">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 180.275672 211.054281)" x="180.275672" y="211.054281">0</text>
+</g>
+</g>
+<g id="chapter35-svg4-xtick_5">
+<g id="chapter35-svg4-line2d_5">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="220.16489" xlink:href="#chapter35-svg4-m6a44033d8d" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_5">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 220.16489 211.054281)" x="220.16489" y="211.054281">1</text>
+</g>
+</g>
+<g id="chapter35-svg4-xtick_6">
+<g id="chapter35-svg4-line2d_6">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="260.054107" xlink:href="#chapter35-svg4-m6a44033d8d" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_6">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 260.054107 211.054281)" x="260.054107" y="211.054281">2</text>
+</g>
+</g>
+<g id="chapter35-svg4-xtick_7">
+<g id="chapter35-svg4-line2d_7">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="299.943325" xlink:href="#chapter35-svg4-m6a44033d8d" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_7">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 299.943325 211.054281)" x="299.943325" y="211.054281">3</text>
+</g>
+</g>
+<g id="chapter35-svg4-xtick_8">
+<g id="chapter35-svg4-line2d_8">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="339.832543" xlink:href="#chapter35-svg4-m6a44033d8d" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_8">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 339.832543 211.054281)" x="339.832543" y="211.054281">4</text>
+</g>
+</g>
+<g id="chapter35-svg4-xtick_9">
+<g id="chapter35-svg4-line2d_9">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="379.72176" xlink:href="#chapter35-svg4-m6a44033d8d" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_9">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 379.72176 211.054281)" x="379.72176" y="211.054281">5</text>
+</g>
+</g>
+<g id="chapter35-svg4-text_10">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 212.462344 225.700219)" x="212.462344" y="225.700219">Feature 1</text>
+</g>
+</g>
+<g id="chapter35-svg4-matplotlib.axis_2">
+<g id="chapter35-svg4-ytick_1">
+<g id="chapter35-svg4-line2d_10">
+<defs>
+<path d="M 0 0 
+L -3.5 0 
+" id="chapter35-svg4-m1854e53512" style="stroke: #000000; stroke-width: 0.8"></path>
+</defs>
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="45.062344" xlink:href="#chapter35-svg4-m1854e53512" y="192.401334"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_11">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 38.062344 196.580475)" x="38.062344" y="196.580475">−3</text>
+</g>
+</g>
+<g id="chapter35-svg4-ytick_2">
+<g id="chapter35-svg4-line2d_11">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="45.062344" xlink:href="#chapter35-svg4-m1854e53512" y="165.895769"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_12">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 38.062344 170.074909)" x="38.062344" y="170.074909">−2</text>
+</g>
+</g>
+<g id="chapter35-svg4-ytick_3">
+<g id="chapter35-svg4-line2d_12">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="45.062344" xlink:href="#chapter35-svg4-m1854e53512" y="139.390204"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_13">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 38.062344 143.569344)" x="38.062344" y="143.569344">−1</text>
+</g>
+</g>
+<g id="chapter35-svg4-ytick_4">
+<g id="chapter35-svg4-line2d_13">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="45.062344" xlink:href="#chapter35-svg4-m1854e53512" y="112.884639"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_14">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 38.062344 117.063779)" x="38.062344" y="117.063779">0</text>
+</g>
+</g>
+<g id="chapter35-svg4-ytick_5">
+<g id="chapter35-svg4-line2d_14">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="45.062344" xlink:href="#chapter35-svg4-m1854e53512" y="86.379074"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_15">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 38.062344 90.558214)" x="38.062344" y="90.558214">1</text>
+</g>
+</g>
+<g id="chapter35-svg4-ytick_6">
+<g id="chapter35-svg4-line2d_15">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="45.062344" xlink:href="#chapter35-svg4-m1854e53512" y="59.873508"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_16">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 38.062344 64.052649)" x="38.062344" y="64.052649">2</text>
+</g>
+</g>
+<g id="chapter35-svg4-ytick_7">
+<g id="chapter35-svg4-line2d_16">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="45.062344" xlink:href="#chapter35-svg4-m1854e53512" y="33.367943"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_17">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 38.062344 37.547084)" x="38.062344" y="37.547084">3</text>
+</g>
+</g>
+<g id="chapter35-svg4-text_18">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-90 15.558281 101.448)" x="15.558281" y="101.448">Feature 2</text>
+</g>
+</g>
+<g id="chapter35-svg4-patch_3">
+<path d="M 45.062344 195.696 
+L 45.062344 7.2 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"></path>
+</g>
+<g id="chapter35-svg4-patch_4">
+<path d="M 45.062344 195.696 
+L 379.862344 195.696 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"></path>
+</g>
+<g id="chapter35-svg4-legend_1">
+<g id="chapter35-svg4-patch_5">
+<path d="M 52.762344 48.291875 
+L 125.73875 48.291875 
+Q 127.93875 48.291875 127.93875 46.091875 
+L 127.93875 14.9 
+Q 127.93875 12.7 125.73875 12.7 
+L 52.762344 12.7 
+Q 50.562344 12.7 50.562344 14.9 
+L 50.562344 46.091875 
+Q 50.562344 48.291875 52.762344 48.291875 
+z
+" style="fill: #fffdf9; opacity: 0.8; stroke: #cccccc; stroke-linejoin: miter"></path>
+</g>
+<g id="chapter35-svg4-PathCollection_3">
+<g>
+<use style="fill: #1f77b4; fill-opacity: 0.45; stroke: #1f77b4; stroke-opacity: 0.45" x="65.962344" xlink:href="#chapter35-svg4-m750a282fef" y="22.570781"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_19">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" transform="rotate(-0 85.762344 25.458281)" x="85.762344" y="25.458281">Source</text>
+</g>
+<g id="chapter35-svg4-PathCollection_4">
+<g>
+<use style="fill: #ff7f0e; fill-opacity: 0.45; stroke: #ff7f0e; stroke-opacity: 0.45" x="65.962344" xlink:href="#chapter35-svg4-m3edbbc8b84" y="38.716719"></use>
+</g>
+</g>
+<g id="chapter35-svg4-text_20">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" transform="rotate(-0 85.762344 41.604219)" x="85.762344" y="41.604219">Target</text>
+</g>
+</g>
+</g>
+</g>
+<defs>
+<clippath id="chapter35-svg4-pb91f34cc36">
+<rect height="188.496" width="334.8" x="45.062344" y="7.2"></rect>
+</clippath>
+</defs>
+</svg>
+<figcaption>図35.4　人工データによる特徴分布の変化（可視化例）</figcaption></figure><h2 id="s9">35.9 自己教師あり学習と表現の再利用</h2><p>自己教師あり学習は、観測データから教師信号を作る事前学習である。画像の異なる拡張を同一対象として扱う対照学習、マスクした入力の復元、時系列の未来表現の予測などがある。第28章のAEも入力自体を教師とする表現学習である。教師なし・自己教師あり・半教師ありを区別する。</p><p>対照学習の一例では、正例ペア $(i,j)$ の正規化埋め込みの類似度を高める。</p>$$L_i=-\log\frac{\exp(\operatorname{sim}(z_i,z_j)/\tau)}{\sum_{k\ne i}\exp(\operatorname{sim}(z_i,z_k)/\tau)}$$<p>$\tau>0$ は温度である。分母は正例を含む自己以外の候補の和である。負例の選び方や拡張が意味を保つことが重要で、同じクラスの別サンプルを負例とする問題もある。学習後は投影ヘッドを外し、エンコーダを下流分類へ転用する。</p><figure><svg aria-label="自己教師あり事前学習から下流分類へ（模式図）" height="147.456pt" role="img" style="width:100%;height:auto" version="1.1" viewbox="0 0 460.8 147.456" width="460.8pt" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<metadata>
+<rdf:rdf xmlns:cc="http://creativecommons.org/ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<cc:work>
+<dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"></dc:type>
+<dc:date>2026-11-25T23:27:45.209360</dc:date>
+<dc:format>image/svg+xml</dc:format>
+<dc:creator>
+<cc:agent>
+<dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+</cc:agent>
+</dc:creator>
+</cc:work>
+</rdf:rdf>
+</metadata>
+<defs>
+<style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+</defs>
+<g id="chapter35-svg5-figure_1">
+<g id="chapter35-svg5-patch_1">
+<path d="M 0 147.456 
+L 460.8 147.456 
+L 460.8 0 
+L 0 0 
+z
+" style="fill: #fffdf9"></path>
+</g>
+<g id="chapter35-svg5-axes_1">
+<g id="chapter35-svg5-text_1">
+<g id="chapter35-svg5-patch_2">
+<path d="M 18.942219 50.736969 
+L 102.593781 50.736969 
+Q 107.543781 50.736969 107.543781 45.786969 
+L 107.543781 35.141031 
+Q 107.543781 30.191031 102.593781 30.191031 
+L 18.942219 30.191031 
+Q 13.992219 30.191031 13.992219 35.141031 
+L 13.992219 45.786969 
+Q 13.992219 50.736969 18.942219 50.736969 
+z
+" style="fill: #e4edf3; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 60.768 43.499312)" x="60.768" y="43.499312">Unlabeled data</text>
+</g>
+<g id="chapter35-svg5-text_2">
+<g id="chapter35-svg5-patch_3">
+<path d="M 146.262328 50.736969 
+L 201.449672 50.736969 
+Q 206.399672 50.736969 206.399672 45.786969 
+L 206.399672 35.141031 
+Q 206.399672 30.191031 201.449672 30.191031 
+L 146.262328 30.191031 
+Q 141.312328 30.191031 141.312328 35.141031 
+L 141.312328 45.786969 
+Q 141.312328 50.736969 146.262328 50.736969 
+z
+" style="fill: #e4edf3; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 173.856 43.499312)" x="173.856" y="43.499312">Two views</text>
+</g>
+<g id="chapter35-svg5-text_3">
+<g id="chapter35-svg5-patch_4">
+<path d="M 243.439 50.736969 
+L 330.449 50.736969 
+Q 335.399 50.736969 335.399 45.786969 
+L 335.399 35.141031 
+Q 335.399 30.191031 330.449 30.191031 
+L 243.439 30.191031 
+Q 238.489 30.191031 238.489 35.141031 
+L 238.489 45.786969 
+Q 238.489 50.736969 243.439 50.736969 
+z
+" style="fill: #dceee5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 286.944 43.499312)" x="286.944" y="43.499312">Shared encoder</text>
+</g>
+<g id="chapter35-svg5-text_4">
+<g id="chapter35-svg5-patch_5">
+<path d="M 355.992469 50.736969 
+L 444.071531 50.736969 
+Q 449.021531 50.736969 449.021531 45.786969 
+L 449.021531 35.141031 
+Q 449.021531 30.191031 444.071531 30.191031 
+L 355.992469 30.191031 
+Q 351.042469 30.191031 351.042469 35.141031 
+L 351.042469 45.786969 
+Q 351.042469 50.736969 355.992469 50.736969 
+z
+" style="fill: #f4e5d5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 400.032 43.499312)" x="400.032" y="43.499312">Contrastive loss</text>
+</g>
+<g id="chapter35-svg5-patch_6">
+<path d="M 100.714588 40.464 
+Q 117.314344 40.464 132.796066 40.464 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 128.396066 38.264 
+L 132.796066 40.464 
+L 128.396066 42.664 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg5-patch_7">
+<path d="M 213.802588 40.464 
+Q 230.402344 40.464 245.884066 40.464 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 241.484066 38.264 
+L 245.884066 40.464 
+L 241.484066 42.664 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg5-patch_8">
+<path d="M 326.890588 40.464 
+Q 343.490344 40.464 358.972066 40.464 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 354.572066 38.264 
+L 358.972066 40.464 
+L 354.572066 42.664 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg5-text_5">
+<g id="chapter35-svg5-patch_9">
+<path d="M 24.916594 117.264969 
+L 96.619406 117.264969 
+Q 101.569406 117.264969 101.569406 112.314969 
+L 101.569406 101.669031 
+Q 101.569406 96.719031 96.619406 96.719031 
+L 24.916594 96.719031 
+Q 19.966594 96.719031 19.966594 101.669031 
+L 19.966594 112.314969 
+Q 19.966594 117.264969 24.916594 117.264969 
+z
+" style="fill: #e4edf3; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 60.768 110.027313)" x="60.768" y="110.027313">Labeled data</text>
+</g>
+<g id="chapter35-svg5-text_6">
+<g id="chapter35-svg5-patch_10">
+<path d="M 189.5625 117.264969 
+L 271.2375 117.264969 
+Q 276.1875 117.264969 276.1875 112.314969 
+L 276.1875 101.669031 
+Q 276.1875 96.719031 271.2375 96.719031 
+L 189.5625 96.719031 
+Q 184.6125 96.719031 184.6125 101.669031 
+L 184.6125 112.314969 
+Q 184.6125 117.264969 189.5625 117.264969 
+z
+" style="fill: #dceee5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 230.4 110.027313)" x="230.4" y="110.027313">Reuse encoder</text>
+</g>
+<g id="chapter35-svg5-text_7">
+<g id="chapter35-svg5-patch_11">
+<path d="M 372.555203 117.264969 
+L 427.508797 117.264969 
+Q 432.458797 117.264969 432.458797 112.314969 
+L 432.458797 101.669031 
+Q 432.458797 96.719031 427.508797 96.719031 
+L 372.555203 96.719031 
+Q 367.605203 96.719031 367.605203 101.669031 
+L 367.605203 112.314969 
+Q 367.605203 117.264969 372.555203 117.264969 
+z
+" style="fill: #f4e5d5; stroke: #2f5b7c; stroke-linejoin: miter"></path>
+</g>
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 400.032 110.027313)" x="400.032" y="110.027313">New head</text>
+</g>
+<g id="chapter35-svg5-patch_12">
+<path d="M 100.711727 106.992 
+Q 145.58293 106.992 189.3361 106.992 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 184.9361 104.792 
+L 189.3361 106.992 
+L 184.9361 109.192 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+<g id="chapter35-svg5-patch_13">
+<path d="M 270.343727 106.992 
+Q 315.21493 106.992 358.9681 106.992 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+<path d="M 354.5681 104.792 
+L 358.9681 106.992 
+L 354.5681 109.192 
+" style="fill: none; stroke: #2f5b7c; stroke-linecap: round"></path>
+</g>
+</g>
+</g>
+</svg>
+<figcaption>図35.5　自己教師あり事前学習から下流分類へ（模式図）</figcaption></figure><div class="code-head"><span>コード35.6　対照損失のNumPy実装（実行済み）</span><button data-copy="code6" type="button">コピー</button></div><pre><code id="code6">import numpy as np
+from scipy.special import logsumexp
+rng=np.random.default_rng(35)
+a=rng.normal(size=(8,16)); b=a+rng.normal(0,.1,a.shape)
+def contrastive(a,b,tau=.2):
+    if a.ndim != 2 or a.shape != b.shape or len(a) == 0 or tau &lt;= 0:
+        raise ValueError("paired nonempty matrices and positive temperature required")
+    z=np.concatenate([a,b]); z/=np.maximum(np.linalg.norm(z,axis=1,keepdims=True),1e-12)
+    logits=z@z.T/tau
+    np.fill_diagonal(logits,-np.inf)
+    pos=(np.arange(len(z))+len(a))%len(z)
+    return np.mean(logsumexp(logits,axis=1)-logits[np.arange(len(z)),pos])
+print('matched',contrastive(a,b),'shuffled',contrastive(a,b[::-1]))
+assert contrastive(a,b)&lt;contrastive(a,b[::-1])
+</code></pre><h2 id="s10">35.10 少数データでの比較実験</h2><p>転移の効果を外部ダウンロードなしで確認するため、手書き数字の画像を0〜4（ソース）と5〜9（ターゲット）に分ける。ソースでPCAを学習して固定し、ターゲットの少数ラベルで線形分類器を学習する。比較対象は生画素とターゲットのみで適合したPCAである。これは深層学習の性能比較ではなく、固定表現の転移を理解するための線形実験である。</p><div class="code-head"><span>コード35.7　固定表現の転移を比較する数値実験（実行済み）</span><button data-copy="code7" type="button">コピー</button></div><pre><code id="code7">import numpy as np
+from sklearn.datasets import load_digits
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+X,y=load_digits(return_X_y=True); X=X/16
+source=X[y&lt;5]; target=X[y&gt;=5]; labels=y[y&gt;=5]
+Xtr,Xte,ytr,yte=train_test_split(target,labels,test_size=.4,
+    stratify=labels,random_state=35)
+source_pca=PCA(10,random_state=35).fit(source)
+results=[]
+for k in (5,10,20,40):
+    for seed in range(10):
+        rng=np.random.default_rng(seed)
+        ids=np.concatenate([rng.choice(np.flatnonzero(ytr==c),k,replace=False)
+                            for c in range(5,10)])
+        a,b=Xtr[ids],ytr[ids]
+        local=PCA(10,random_state=35).fit(a)
+        for name,transform in [('Raw',lambda x:x),('Source PCA',source_pca.transform),
+                               ('Target PCA',local.transform)]:
+            clf=LogisticRegression(max_iter=1000).fit(transform(a),b)
+            results.append((k,seed,name,clf.score(transform(Xte),yte)))
+</code></pre><figure><svg aria-label="固定表現の比較（実測、10シード平均±標準偏差。共通テスト集合）" height="235.187875pt" role="img" style="width:100%;height:auto" version="1.1" viewbox="0 0 444.139375 235.187875" width="444.139375pt" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<metadata>
+<rdf:rdf xmlns:cc="http://creativecommons.org/ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<cc:work>
+<dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"></dc:type>
+<dc:date>2026-11-25T23:27:46.722666</dc:date>
+<dc:format>image/svg+xml</dc:format>
+<dc:creator>
+<cc:agent>
+<dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+</cc:agent>
+</dc:creator>
+</cc:work>
+</rdf:rdf>
+</metadata>
+<defs>
+<style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+</defs>
+<g id="chapter35-svg6-figure_1">
+<g id="chapter35-svg6-patch_1">
+<path d="M 0 235.187875 
+L 444.139375 235.187875 
+L 444.139375 -0 
+L 0 -0 
+z
+" style="fill: #fffdf9"></path>
+</g>
+<g id="chapter35-svg6-axes_1">
+<g id="chapter35-svg6-patch_2">
+<path d="M 46.339375 195.696 
+L 436.939375 195.696 
+L 436.939375 7.2 
+L 46.339375 7.2 
+z
+" style="fill: #fffdf9"></path>
+</g>
+<g id="chapter35-svg6-matplotlib.axis_1">
+<g id="chapter35-svg6-xtick_1">
+<g id="chapter35-svg6-line2d_1">
+<defs>
+<path d="M 0 0 
+L 0 3.5 
+" id="chapter35-svg6-m800dc91476" style="stroke: #000000; stroke-width: 0.8"></path>
+</defs>
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="64.09392" xlink:href="#chapter35-svg6-m800dc91476" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_1">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 64.09392 211.054281)" x="64.09392" y="211.054281">5</text>
+</g>
+</g>
+<g id="chapter35-svg6-xtick_2">
+<g id="chapter35-svg6-line2d_2">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="114.821193" xlink:href="#chapter35-svg6-m800dc91476" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_2">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 114.821193 211.054281)" x="114.821193" y="211.054281">10</text>
+</g>
+</g>
+<g id="chapter35-svg6-xtick_3">
+<g id="chapter35-svg6-line2d_3">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="165.548466" xlink:href="#chapter35-svg6-m800dc91476" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_3">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 165.548466 211.054281)" x="165.548466" y="211.054281">15</text>
+</g>
+</g>
+<g id="chapter35-svg6-xtick_4">
+<g id="chapter35-svg6-line2d_4">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="216.275739" xlink:href="#chapter35-svg6-m800dc91476" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_4">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 216.275739 211.054281)" x="216.275739" y="211.054281">20</text>
+</g>
+</g>
+<g id="chapter35-svg6-xtick_5">
+<g id="chapter35-svg6-line2d_5">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="267.003011" xlink:href="#chapter35-svg6-m800dc91476" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_5">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 267.003011 211.054281)" x="267.003011" y="211.054281">25</text>
+</g>
+</g>
+<g id="chapter35-svg6-xtick_6">
+<g id="chapter35-svg6-line2d_6">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="317.730284" xlink:href="#chapter35-svg6-m800dc91476" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_6">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 317.730284 211.054281)" x="317.730284" y="211.054281">30</text>
+</g>
+</g>
+<g id="chapter35-svg6-xtick_7">
+<g id="chapter35-svg6-line2d_7">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="368.457557" xlink:href="#chapter35-svg6-m800dc91476" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_7">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 368.457557 211.054281)" x="368.457557" y="211.054281">35</text>
+</g>
+</g>
+<g id="chapter35-svg6-xtick_8">
+<g id="chapter35-svg6-line2d_8">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="419.18483" xlink:href="#chapter35-svg6-m800dc91476" y="195.696"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_8">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 419.18483 211.054281)" x="419.18483" y="211.054281">40</text>
+</g>
+</g>
+<g id="chapter35-svg6-text_9">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-0 241.639375 225.700219)" x="241.639375" y="225.700219">Labeled training samples per class</text>
+</g>
+</g>
+<g id="chapter35-svg6-matplotlib.axis_2">
+<g id="chapter35-svg6-ytick_1">
+<g id="chapter35-svg6-line2d_9">
+<defs>
+<path d="M 0 0 
+L -3.5 0 
+" id="chapter35-svg6-m0d42cc0f2f" style="stroke: #000000; stroke-width: 0.8"></path>
+</defs>
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="46.339375" xlink:href="#chapter35-svg6-m0d42cc0f2f" y="179.161263"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_10">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 39.339375 183.340404)" x="39.339375" y="183.340404">0.5</text>
+</g>
+</g>
+<g id="chapter35-svg6-ytick_2">
+<g id="chapter35-svg6-line2d_10">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="46.339375" xlink:href="#chapter35-svg6-m0d42cc0f2f" y="146.091789"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_11">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 39.339375 150.27093)" x="39.339375" y="150.27093">0.6</text>
+</g>
+</g>
+<g id="chapter35-svg6-ytick_3">
+<g id="chapter35-svg6-line2d_11">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="46.339375" xlink:href="#chapter35-svg6-m0d42cc0f2f" y="113.022316"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_12">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 39.339375 117.201456)" x="39.339375" y="117.201456">0.7</text>
+</g>
+</g>
+<g id="chapter35-svg6-ytick_4">
+<g id="chapter35-svg6-line2d_12">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="46.339375" xlink:href="#chapter35-svg6-m0d42cc0f2f" y="79.952842"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_13">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 39.339375 84.131983)" x="39.339375" y="84.131983">0.8</text>
+</g>
+</g>
+<g id="chapter35-svg6-ytick_5">
+<g id="chapter35-svg6-line2d_13">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="46.339375" xlink:href="#chapter35-svg6-m0d42cc0f2f" y="46.883368"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_14">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 39.339375 51.062509)" x="39.339375" y="51.062509">0.9</text>
+</g>
+</g>
+<g id="chapter35-svg6-ytick_6">
+<g id="chapter35-svg6-line2d_14">
+<g>
+<use style="stroke: #000000; stroke-width: 0.8" x="46.339375" xlink:href="#chapter35-svg6-m0d42cc0f2f" y="13.813895"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_15">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" transform="rotate(-0 39.339375 17.993035)" x="39.339375" y="17.993035">1.0</text>
+</g>
+</g>
+<g id="chapter35-svg6-text_16">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" transform="rotate(-90 15.558281 101.448)" x="15.558281" y="101.448">Test accuracy</text>
+</g>
+</g>
+<g id="chapter35-svg6-LineCollection_1">
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 64.09392 42.496913 
+L 64.09392 33.03095 
+" style="fill: none; stroke: #2f5b7c; stroke-width: 1.5"></path>
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 114.821193 39.178578 
+L 114.821193 30.638122 
+" style="fill: none; stroke: #2f5b7c; stroke-width: 1.5"></path>
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 216.275739 28.533252 
+L 216.275739 23.228805 
+" style="fill: none; stroke: #2f5b7c; stroke-width: 1.5"></path>
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 419.18483 26.409145 
+L 419.18483 23.32637 
+" style="fill: none; stroke: #2f5b7c; stroke-width: 1.5"></path>
+</g>
+<g id="chapter35-svg6-line2d_15">
+<defs>
+<path d="M 3 0 
+L -3 -0 
+" id="chapter35-svg6-m06fd031d87" style="stroke: #2f5b7c"></path>
+</defs>
+<g clip-path="url(#chapter35-svg6-p5f79ab3000)">
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="64.09392" xlink:href="#chapter35-svg6-m06fd031d87" y="42.496913"></use>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="114.821193" xlink:href="#chapter35-svg6-m06fd031d87" y="39.178578"></use>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="216.275739" xlink:href="#chapter35-svg6-m06fd031d87" y="28.533252"></use>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="419.18483" xlink:href="#chapter35-svg6-m06fd031d87" y="26.409145"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_16">
+<g clip-path="url(#chapter35-svg6-p5f79ab3000)">
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="64.09392" xlink:href="#chapter35-svg6-m06fd031d87" y="33.03095"></use>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="114.821193" xlink:href="#chapter35-svg6-m06fd031d87" y="30.638122"></use>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="216.275739" xlink:href="#chapter35-svg6-m06fd031d87" y="23.228805"></use>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="419.18483" xlink:href="#chapter35-svg6-m06fd031d87" y="23.32637"></use>
+</g>
+</g>
+<g id="chapter35-svg6-LineCollection_2">
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 64.09392 77.253001 
+L 64.09392 58.518415 
+" style="fill: none; stroke: #b47845; stroke-width: 1.5"></path>
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 114.821193 68.194783 
+L 114.821193 54.680459 
+" style="fill: none; stroke: #b47845; stroke-width: 1.5"></path>
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 216.275739 54.935992 
+L 216.275739 47.858066 
+" style="fill: none; stroke: #b47845; stroke-width: 1.5"></path>
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 419.18483 48.043775 
+L 419.18483 42.591034 
+" style="fill: none; stroke: #b47845; stroke-width: 1.5"></path>
+</g>
+<g id="chapter35-svg6-line2d_17">
+<defs>
+<path d="M 3 0 
+L -3 -0 
+" id="chapter35-svg6-mce0e7400a6" style="stroke: #b47845"></path>
+</defs>
+<g clip-path="url(#chapter35-svg6-p5f79ab3000)">
+<use style="fill: #b47845; stroke: #b47845" x="64.09392" xlink:href="#chapter35-svg6-mce0e7400a6" y="77.253001"></use>
+<use style="fill: #b47845; stroke: #b47845" x="114.821193" xlink:href="#chapter35-svg6-mce0e7400a6" y="68.194783"></use>
+<use style="fill: #b47845; stroke: #b47845" x="216.275739" xlink:href="#chapter35-svg6-mce0e7400a6" y="54.935992"></use>
+<use style="fill: #b47845; stroke: #b47845" x="419.18483" xlink:href="#chapter35-svg6-mce0e7400a6" y="48.043775"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_18">
+<g clip-path="url(#chapter35-svg6-p5f79ab3000)">
+<use style="fill: #b47845; stroke: #b47845" x="64.09392" xlink:href="#chapter35-svg6-mce0e7400a6" y="58.518415"></use>
+<use style="fill: #b47845; stroke: #b47845" x="114.821193" xlink:href="#chapter35-svg6-mce0e7400a6" y="54.680459"></use>
+<use style="fill: #b47845; stroke: #b47845" x="216.275739" xlink:href="#chapter35-svg6-mce0e7400a6" y="47.858066"></use>
+<use style="fill: #b47845; stroke: #b47845" x="419.18483" xlink:href="#chapter35-svg6-mce0e7400a6" y="42.591034"></use>
+</g>
+</g>
+<g id="chapter35-svg6-LineCollection_3">
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 64.09392 48.898523 
+L 64.09392 33.261658 
+" style="fill: none; stroke: #397b70; stroke-width: 1.5"></path>
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 114.821193 43.929911 
+L 114.821193 33.624493 
+" style="fill: none; stroke: #397b70; stroke-width: 1.5"></path>
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 216.275739 32.771676 
+L 216.275739 25.254237 
+" style="fill: none; stroke: #397b70; stroke-width: 1.5"></path>
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 419.18483 30.348213 
+L 419.18483 25.282696 
+" style="fill: none; stroke: #397b70; stroke-width: 1.5"></path>
+</g>
+<g id="chapter35-svg6-line2d_19">
+<defs>
+<path d="M 3 0 
+L -3 -0 
+" id="chapter35-svg6-m2d1b6b3bb4" style="stroke: #397b70"></path>
+</defs>
+<g clip-path="url(#chapter35-svg6-p5f79ab3000)">
+<use style="fill: #397b70; stroke: #397b70" x="64.09392" xlink:href="#chapter35-svg6-m2d1b6b3bb4" y="48.898523"></use>
+<use style="fill: #397b70; stroke: #397b70" x="114.821193" xlink:href="#chapter35-svg6-m2d1b6b3bb4" y="43.929911"></use>
+<use style="fill: #397b70; stroke: #397b70" x="216.275739" xlink:href="#chapter35-svg6-m2d1b6b3bb4" y="32.771676"></use>
+<use style="fill: #397b70; stroke: #397b70" x="419.18483" xlink:href="#chapter35-svg6-m2d1b6b3bb4" y="30.348213"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_20">
+<g clip-path="url(#chapter35-svg6-p5f79ab3000)">
+<use style="fill: #397b70; stroke: #397b70" x="64.09392" xlink:href="#chapter35-svg6-m2d1b6b3bb4" y="33.261658"></use>
+<use style="fill: #397b70; stroke: #397b70" x="114.821193" xlink:href="#chapter35-svg6-m2d1b6b3bb4" y="33.624493"></use>
+<use style="fill: #397b70; stroke: #397b70" x="216.275739" xlink:href="#chapter35-svg6-m2d1b6b3bb4" y="25.254237"></use>
+<use style="fill: #397b70; stroke: #397b70" x="419.18483" xlink:href="#chapter35-svg6-m2d1b6b3bb4" y="25.282696"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_21">
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 64.09392 37.763931 
+L 114.821193 34.90835 
+L 216.275739 25.881029 
+L 419.18483 24.867758 
+" style="fill: none; stroke: #2f5b7c; stroke-width: 1.5; stroke-linecap: square"></path>
+<defs>
+<path d="M 0 3 
+C 0.795609 3 1.55874 2.683901 2.12132 2.12132 
+C 2.683901 1.55874 3 0.795609 3 0 
+C 3 -0.795609 2.683901 -1.55874 2.12132 -2.12132 
+C 1.55874 -2.683901 0.795609 -3 0 -3 
+C -0.795609 -3 -1.55874 -2.683901 -2.12132 -2.12132 
+C -2.683901 -1.55874 -3 -0.795609 -3 0 
+C -3 0.795609 -2.683901 1.55874 -2.12132 2.12132 
+C -1.55874 2.683901 -0.795609 3 0 3 
+z
+" id="chapter35-svg6-m3ca78feb71" style="stroke: #2f5b7c"></path>
+</defs>
+<g clip-path="url(#chapter35-svg6-p5f79ab3000)">
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="64.09392" xlink:href="#chapter35-svg6-m3ca78feb71" y="37.763931"></use>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="114.821193" xlink:href="#chapter35-svg6-m3ca78feb71" y="34.90835"></use>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="216.275739" xlink:href="#chapter35-svg6-m3ca78feb71" y="25.881029"></use>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="419.18483" xlink:href="#chapter35-svg6-m3ca78feb71" y="24.867758"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_22">
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 64.09392 67.885708 
+L 114.821193 61.437621 
+L 216.275739 51.397029 
+L 419.18483 45.317404 
+" style="fill: none; stroke: #b47845; stroke-width: 1.5; stroke-linecap: square"></path>
+<defs>
+<path d="M 0 3 
+C 0.795609 3 1.55874 2.683901 2.12132 2.12132 
+C 2.683901 1.55874 3 0.795609 3 0 
+C 3 -0.795609 2.683901 -1.55874 2.12132 -2.12132 
+C 1.55874 -2.683901 0.795609 -3 0 -3 
+C -0.795609 -3 -1.55874 -2.683901 -2.12132 -2.12132 
+C -2.683901 -1.55874 -3 -0.795609 -3 0 
+C -3 0.795609 -2.683901 1.55874 -2.12132 2.12132 
+C -1.55874 2.683901 -0.795609 3 0 3 
+z
+" id="chapter35-svg6-ma02235003a" style="stroke: #b47845"></path>
+</defs>
+<g clip-path="url(#chapter35-svg6-p5f79ab3000)">
+<use style="fill: #b47845; stroke: #b47845" x="64.09392" xlink:href="#chapter35-svg6-ma02235003a" y="67.885708"></use>
+<use style="fill: #b47845; stroke: #b47845" x="114.821193" xlink:href="#chapter35-svg6-ma02235003a" y="61.437621"></use>
+<use style="fill: #b47845; stroke: #b47845" x="216.275739" xlink:href="#chapter35-svg6-ma02235003a" y="51.397029"></use>
+<use style="fill: #b47845; stroke: #b47845" x="419.18483" xlink:href="#chapter35-svg6-ma02235003a" y="45.317404"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_23">
+<path clip-path="url(#chapter35-svg6-p5f79ab3000)" d="M 64.09392 41.08009 
+L 114.821193 38.777202 
+L 216.275739 29.012956 
+L 419.18483 27.815455 
+" style="fill: none; stroke: #397b70; stroke-width: 1.5; stroke-linecap: square"></path>
+<defs>
+<path d="M 0 3 
+C 0.795609 3 1.55874 2.683901 2.12132 2.12132 
+C 2.683901 1.55874 3 0.795609 3 0 
+C 3 -0.795609 2.683901 -1.55874 2.12132 -2.12132 
+C 1.55874 -2.683901 0.795609 -3 0 -3 
+C -0.795609 -3 -1.55874 -2.683901 -2.12132 -2.12132 
+C -2.683901 -1.55874 -3 -0.795609 -3 0 
+C -3 0.795609 -2.683901 1.55874 -2.12132 2.12132 
+C -1.55874 2.683901 -0.795609 3 0 3 
+z
+" id="chapter35-svg6-mf3ba9d2271" style="stroke: #397b70"></path>
+</defs>
+<g clip-path="url(#chapter35-svg6-p5f79ab3000)">
+<use style="fill: #397b70; stroke: #397b70" x="64.09392" xlink:href="#chapter35-svg6-mf3ba9d2271" y="41.08009"></use>
+<use style="fill: #397b70; stroke: #397b70" x="114.821193" xlink:href="#chapter35-svg6-mf3ba9d2271" y="38.777202"></use>
+<use style="fill: #397b70; stroke: #397b70" x="216.275739" xlink:href="#chapter35-svg6-mf3ba9d2271" y="29.012956"></use>
+<use style="fill: #397b70; stroke: #397b70" x="419.18483" xlink:href="#chapter35-svg6-mf3ba9d2271" y="27.815455"></use>
+</g>
+</g>
+<g id="chapter35-svg6-patch_3">
+<path d="M 46.339375 195.696 
+L 46.339375 7.2 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"></path>
+</g>
+<g id="chapter35-svg6-patch_4">
+<path d="M 46.339375 195.696 
+L 436.939375 195.696 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"></path>
+</g>
+<g id="chapter35-svg6-legend_1">
+<g id="chapter35-svg6-patch_5">
+<path d="M 54.039375 190.196 
+L 152.350156 190.196 
+Q 154.550156 190.196 154.550156 187.996 
+L 154.550156 140.658187 
+Q 154.550156 138.458187 152.350156 138.458187 
+L 54.039375 138.458187 
+Q 51.839375 138.458187 51.839375 140.658187 
+L 51.839375 187.996 
+Q 51.839375 190.196 54.039375 190.196 
+z
+" style="fill: #fffdf9; opacity: 0.8; stroke: #cccccc; stroke-linejoin: miter"></path>
+</g>
+<g id="chapter35-svg6-LineCollection_4">
+<path d="M 67.239375 152.866469 
+L 67.239375 141.866469 
+" style="fill: none; stroke: #2f5b7c; stroke-width: 1.5"></path>
+</g>
+<g id="chapter35-svg6-line2d_24">
+<g>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="67.239375" xlink:href="#chapter35-svg6-m06fd031d87" y="152.866469"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_25">
+<g>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="67.239375" xlink:href="#chapter35-svg6-m06fd031d87" y="141.866469"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_26">
+<path d="M 56.239375 147.366469 
+L 78.239375 147.366469 
+" style="fill: none; stroke: #2f5b7c; stroke-width: 1.5; stroke-linecap: square"></path>
+</g>
+<g id="chapter35-svg6-line2d_27">
+<g>
+<use style="fill: #2f5b7c; stroke: #2f5b7c" x="67.239375" xlink:href="#chapter35-svg6-m3ca78feb71" y="147.366469"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_17">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" transform="rotate(-0 87.039375 151.216469)" x="87.039375" y="151.216469">Raw</text>
+</g>
+<g id="chapter35-svg6-LineCollection_5">
+<path d="M 67.239375 169.012406 
+L 67.239375 158.012406 
+" style="fill: none; stroke: #b47845; stroke-width: 1.5"></path>
+</g>
+<g id="chapter35-svg6-line2d_28">
+<g>
+<use style="fill: #b47845; stroke: #b47845" x="67.239375" xlink:href="#chapter35-svg6-mce0e7400a6" y="169.012406"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_29">
+<g>
+<use style="fill: #b47845; stroke: #b47845" x="67.239375" xlink:href="#chapter35-svg6-mce0e7400a6" y="158.012406"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_30">
+<path d="M 56.239375 163.512406 
+L 78.239375 163.512406 
+" style="fill: none; stroke: #b47845; stroke-width: 1.5; stroke-linecap: square"></path>
+</g>
+<g id="chapter35-svg6-line2d_31">
+<g>
+<use style="fill: #b47845; stroke: #b47845" x="67.239375" xlink:href="#chapter35-svg6-ma02235003a" y="163.512406"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_18">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" transform="rotate(-0 87.039375 167.362406)" x="87.039375" y="167.362406">Source PCA</text>
+</g>
+<g id="chapter35-svg6-LineCollection_6">
+<path d="M 67.239375 185.158344 
+L 67.239375 174.158344 
+" style="fill: none; stroke: #397b70; stroke-width: 1.5"></path>
+</g>
+<g id="chapter35-svg6-line2d_32">
+<g>
+<use style="fill: #397b70; stroke: #397b70" x="67.239375" xlink:href="#chapter35-svg6-m2d1b6b3bb4" y="185.158344"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_33">
+<g>
+<use style="fill: #397b70; stroke: #397b70" x="67.239375" xlink:href="#chapter35-svg6-m2d1b6b3bb4" y="174.158344"></use>
+</g>
+</g>
+<g id="chapter35-svg6-line2d_34">
+<path d="M 56.239375 179.658344 
+L 78.239375 179.658344 
+" style="fill: none; stroke: #397b70; stroke-width: 1.5; stroke-linecap: square"></path>
+</g>
+<g id="chapter35-svg6-line2d_35">
+<g>
+<use style="fill: #397b70; stroke: #397b70" x="67.239375" xlink:href="#chapter35-svg6-mf3ba9d2271" y="179.658344"></use>
+</g>
+</g>
+<g id="chapter35-svg6-text_19">
+<text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" transform="rotate(-0 87.039375 183.508344)" x="87.039375" y="183.508344">Target PCA</text>
+</g>
+</g>
+</g>
+</g>
+<defs>
+<clippath id="chapter35-svg6-p5f79ab3000">
+<rect height="188.496" width="390.6" x="46.339375" y="7.2"></rect>
+</clippath>
+</defs>
+</svg>
+<figcaption>図35.6　固定表現の比較（実測、10シード平均±標準偏差。共通テスト集合）</figcaption></figure><p>この結果は固定したテスト集合で事前に定めた三方式を記述的に比較したもので、テストを使ったモデル選択は行わない。誤差棒は訓練標本抽出の変動であり、独立したテスト集合に対する信頼区間ではない。PCAは教師なしの線形表現なので、実際のCNNの転移性能へ直接一般化できない。</p><h2 id="s11">35.11 実務・Kaggleでの実験設計</h2><p>コンペでは利用可能な外部データ・事前学習重み・ライセンスを最初に確認する。公開重みに評価画像が含まれていた可能性や、同一対象の重複も考慮する。比較は同じFold、前処理、評価指標を用い、学習時間や推論コストを記録する。各Foldで元の事前学習済み重みから開始し、他Foldでターゲットに適応済みの重みを使い回さない。</p><div class="table-wrap"><table><tr><th>実験</th><th>変更点</th><th>確認事項</th></tr><tr><td>A</td><td>Scratch</td><td>基準性能</td></tr><tr><td>B</td><td>固定特徴</td><td>事前表現の有用性</td></tr><tr><td>C</td><td>上位ブロック解凍</td><td>適応の寄与</td></tr><tr><td>D</td><td>全層FT</td><td>過学習と計算量</td></tr><tr><td>E</td><td>層別学習率</td><td>更新の安定性</td></tr></table></div><p>保存するものはモデル、前処理、クラス順、分割ID、重みの出所、依存ライブラリの版、シード、検証ログである。推論時には同じ変換とクラス順を再現する。</p><h2 id="s12">35.12 まとめと確認問題</h2><p>転移学習は、事前学習で獲得した表現をターゲットのデータ量と分布に応じて再利用する技術である。固定特徴から始め、検証性能に基づいて段階的に解凍する。次章ではこの比較をさらに体系的なハイパーパラメータ探索へ発展させる。</p><details id="ex-1"><summary>問1　特徴抽出とFTの違いは？</summary><p>前者はエンコーダ固定、後者は一部または全部を更新する。</p></details><details id="ex-2"><summary>問2　新しいヘッドを先に学習する理由は？</summary><p>初期の大きな誤差信号で有用な表現を壊す危険を抑える。</p></details><details id="ex-3"><summary>問3　解凍後にcompileが必要な理由は？</summary><p>更新対象の変化を学習処理に反映するため。</p></details><details id="ex-4"><summary>問4　training=Falseは勾配を止めるか？</summary><p>止めない。主に順伝播の動作を指定する。</p></details><details id="ex-5"><summary>問5　Adamで勾配を0.1倍すれば学習率も0.1倍か？</summary><p>一般には違う。モーメントによる正規化がある。</p></details><details id="ex-6"><summary>問6　負の転移を判定するには？</summary><p>同じ分割・評価条件でScratchと比較する。</p></details><details id="ex-7"><summary>問7　擬似ラベルの危険は？</summary><p>誤予測を教師として再学習し誤りを増幅する可能性。</p></details><details id="ex-8"><summary>問8　対照学習の温度を下げると？</summary><p>類似度の差に敏感になる。小さすぎると学習が不安定になることもある。</p></details><details id="ex-9"><summary>問9　発展：5 FoldのFTを設計せよ。</summary><p>開発データを5つの外側Foldに分け、各外側訓練集合の内部で検証集合を確保する。各Foldで同じ事前学習済み重みから開始し、内側検証で停止時点・解凍範囲を選ぶ。外側検証でOOF予測を作り、選択終了後に独立テストで最終モデルを評価する。</p></details><h3>参考資料</h3><p><a href="https://keras.io/guides/transfer_learning/">Keras: Transfer learning &amp; fine-tuning</a>、<a href="https://www.tensorflow.org/tutorials/images/transfer_learning">TensorFlow: Transfer learning and fine-tuning</a></p><p>NumPy・scikit-learnの数値例は実行済み。TensorFlow学習例は構文検証のみで、実測結果は掲載していない。</p><nav aria-label="章送り" class="chap-nav"><a href="chapter34.html"><span class="dir">◀ 前章</span><span class="ttl">第34章　その他の応用タスク</span></a><a href="chapter36.html"><span class="dir">次章 ▶</span><span class="ttl">第36章　モデルの性能改善とハイパーパラメータ探索</span></a></nav><div class="toc-back"><a href="#">章の先頭へ戻る</a>　<a href="index.html">全体目次へ</a></div></main><script>document.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);b.textContent="コピー済み";}catch(e){b.textContent="選択してコピーしてください";}}));</script></body></html>

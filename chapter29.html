@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+
+<html lang="ja"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>第29章 表形式データの回帰・分類｜深層学習の基礎と実践</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&amp;family=Shippori+Mincho:wght@500;600;700&amp;family=Zen+Kaku+Gothic+Antique:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="style.css" rel="stylesheet"/><script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async="" src="https://cdn.jsdelivr.net/npm/mathjax@3.2.1/es5/tex-svg-full.js"></script></head><body><div class="topbar"><div class="inner"><a class="book" href="index.html">深層学習の基礎と実践</a><span>第29章</span></div></div><main class="page"><header class="chapter-head"><p class="eyebrow">Part VI / Chapter 29</p><h1>第29章　表形式データの回帰・分類</h1><p class="lead">特徴量設計から交差検証・提出までを一貫して実装する</p></header><blockquote><b>この章の到達目標</b><ul><li>表形式データの特徴量と検証設計を理解する。</li><li>カテゴリEmbeddingを用いたMLPを構築する。</li><li>GBDTと比較し、OOF予測と提出ファイルを作成する。</li></ul></blockquote><nav class="section-toc"><b>本章の目次</b><ol><li><a href="#s1">29.1 表形式データと問題設定</a></li><li><a href="#s2">29.2 データの検査と検証設計</a></li><li><a href="#s3">29.3 数値特徴量と特徴量エンジニアリング</a></li><li><a href="#s4">29.4 カテゴリ変数の表現とEmbedding</a></li><li><a href="#s5">29.5 Tabular MLPの設計</a></li><li><a href="#s6">29.6 ツリーベースモデルとの比較</a></li><li><a href="#s7">29.7 目的変数と評価指標の設計</a></li><li><a href="#s8">29.8 Foldごとの前処理とOOF予測</a></li><li><a href="#s9">29.9 実践：住宅価格の回帰パイプライン</a></li><li><a href="#s10">29.10 実践：二値分類への変更</a></li><li><a href="#s11">29.11 性能改善と実験管理</a></li><li><a href="#s12">29.12 まとめと確認問題</a></li></ol></nav><hr/><h2 id="s1">29.1 表形式データと問題設定</h2><p>表形式データ（tabular data）は行が標本、列が特徴量を表す。住宅価格なら面積・築年数・地域から価格を推定する回帰、顧客離脱なら契約情報から離脱確率を推定する分類となる。画像や系列と違って列ごとに意味・単位・分布が異なり、列の隣接関係に一般的な意味はない。このためCNNを無条件に適用するのではなく、まずMLPやツリーベースモデルを検討する。</p><p>最初に予測時点、予測対象、利用可能な特徴量、評価指標を定義する。例えば契約終了後に記録された解約理由は離脱予測時には利用できない。IDは結合や提出に必要だが、予測に使う根拠がなければ除外する。</p><div class="table-wrap"><table><tr><th>列</th><th>例</th><th>処理</th></tr><tr><td>数値</td><td>面積・築年数</td><td>補完・標準化</td></tr><tr><td>名義カテゴリ</td><td>地域・商品種別</td><td>One-hot / Embedding</td></tr><tr><td>順序カテゴリ</td><td>評価A〜C</td><td>順序を明示</td></tr><tr><td>日時</td><td>契約日</td><td>曜日・経過日数</td></tr><tr><td>目的変数</td><td>価格・離脱</td><td>特徴量から分離</td></tr></table></div><figure><svg aria-label="表形式予測の全体像" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 115" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="48" rx="6" stroke="#7395ad" width="102.0" x="30.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="81.0" y="74">データ検査</text><path d="M132.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="48" rx="6" stroke="#7395ad" width="102.0" x="146.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="197.0" y="74">分割</text><path d="M248.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="48" rx="6" stroke="#7395ad" width="102.0" x="262.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="313.0" y="74">前処理</text><path d="M364.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="48" rx="6" stroke="#7395ad" width="102.0" x="378.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="429.0" y="74">学習・評価</text><path d="M480.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="48" rx="6" stroke="#7395ad" width="102.0" x="494.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="545.0" y="74">提出</text></svg><figcaption>図29.1　表形式予測の全体像</figcaption></figure><h2 id="s2">29.2 データの検査と検証設計</h2><p>学習前に列の型、欠損率、重複、カテゴリ数、目的変数の分布を確認する。分割方法は実運用で未知となる単位に合わせる。未知の顧客への汎化を評価し、同一顧客の複数行があるならGroupKFold、未来を予測するなら時間順分割、独立した分類標本ならStratifiedKFoldを候補とする。時系列では予測時点より後の情報が特徴量に含まれないこと、および訓練ラベルの確定時点が検証の予測時点より後にならないことも確認する。</p><p>交差検証では各Foldで前処理をfitする。外側の検証FoldをEarlyStoppingに使うと、そのFoldのラベルがモデル選択に関与する。本章の実践では外側訓練部分をさらに内側訓練・内側検証に分ける。</p><figure><svg aria-label="外側検証と内側モデル選択の分離" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 115" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="48" rx="6" stroke="#7395ad" width="131.0" x="30.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="95.5" y="74">内側訓練</text><path d="M161.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="48" rx="6" stroke="#7395ad" width="131.0" x="175.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="240.5" y="74">内側検証</text><path d="M306.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="48" rx="6" stroke="#7395ad" width="131.0" x="320.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="385.5" y="74">最良モデル</text><path d="M451.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="48" rx="6" stroke="#7395ad" width="131.0" x="465.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="530.5" y="74">外側評価</text></svg><figcaption>図29.2　外側検証と内側モデル選択の分離</figcaption></figure><div class="code-head"><span>コード29.1　データ監査（CSVを用意して実行）</span><button data-copy="code1" type="button">コピー</button></div><pre><code id="code1">import pandas as pd
+train = pd.read_csv("train.csv")
+print(train.shape)
+print(train.dtypes)
+print(train.isna().mean().sort_values(ascending=False))
+print(train.nunique(dropna=False))
+print("duplicate rows:", train.duplicated().sum())
+</code></pre><h2 id="s3">29.3 数値特徴量と特徴量エンジニアリング</h2><p>MLPでは特徴量の尺度が勾配の大きさに影響する。訓練データから中央値・平均・標準偏差を推定し、検証・テストに同じ変換を適用する。欠損フラグを追加すると、欠損そのものが情報を持つ場合に利用できる。定数列では標準偏差0を避ける。</p>$$z_j=(x_j-\mu_j)/\sigma_j$$<p>面積×単価のような積、比率、対数、周期変換はドメイン知識を明示する。曜日を数値として使うと日曜と月曜が遠くなるため、周期Pに対してsin・cosに変換できる。</p>$$u=\sin(2\pi t/P),\qquad v=\cos(2\pi t/P)$$<p>比率の分母0、log1pの定義域、未来の情報を含む集計に注意する。特徴量の採否は検証で判断する。</p><div class="code-head"><span>コード29.2　行単位の特徴量生成</span><button data-copy="code2" type="button">コピー</button></div><pre><code id="code2">import numpy as np
+import pandas as pd
+
+def make_features(df):
+    out = df.copy()
+    out["area_per_room"] = out["area"] / out["rooms"].replace(0, np.nan)
+    out["log_area"] = np.log1p(out["area"].where(out["area"] &gt;= 0))
+    date = pd.to_datetime(out["date"], errors="coerce")
+    out["weekday_sin"] = np.sin(2*np.pi*date.dt.dayofweek/7)
+    out["weekday_cos"] = np.cos(2*np.pi*date.dt.dayofweek/7)
+    return out.drop(columns="date")
+</code></pre><h2 id="s4">29.4 カテゴリ変数の表現とEmbedding</h2><p>One-hotは低カーディナリティのカテゴリに適する。高カーディナリティでは語彙数Vと埋め込み幅dの行列Eを学習するEmbeddingが候補となる。カテゴリID kの表現はEのk行目である。IDをそのまま連続値にする方法とは異なり、大小関係を仮定しない。</p>$$e_k=E_{k,:},\quad E\in\mathbb R^{V\times d}$$<p>未知カテゴリ用のOOVを確保し、欠損は専用文字列に変換する。語彙は訓練部分から作り、検証・テストでは固定する。頻度エンコーディングも訓練部分から計算する。Target Encodingは目的変数を使うため、訓練行自身のラベルを含まないOOF変換が必要である。分類では平滑化したカテゴリ平均を用いることがある。</p>$$TE(c)=\frac{\sum_{i:x_i=c} y_i+\alpha\bar y}{n_c+\alpha}$$<p>この式の集計対象は変換対象の行を含まない訓練部分とする。未知カテゴリは訓練平均に戻す。平滑化係数は正とし、全体平均も各変換用の訓練部分だけで求める。</p><figure><svg aria-label="EmbeddingはIDに対応する行を取り出す" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 175" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="30" stroke="#7395ad" width="60" x="220" y="18"></rect><text text-anchor="middle" x="250" y="38">-0.2</text><rect fill="#e4edf4" height="30" stroke="#7395ad" width="60" x="285" y="18"></rect><text text-anchor="middle" x="315" y="38">0.1</text><rect fill="#e4edf4" height="30" stroke="#7395ad" width="60" x="350" y="18"></rect><text text-anchor="middle" x="380" y="38">0.3</text><rect fill="#e4edf4" height="30" stroke="#7395ad" width="60" x="220" y="53"></rect><text text-anchor="middle" x="250" y="73">0.4</text><rect fill="#e4edf4" height="30" stroke="#7395ad" width="60" x="285" y="53"></rect><text text-anchor="middle" x="315" y="73">-0.1</text><rect fill="#e4edf4" height="30" stroke="#7395ad" width="60" x="350" y="53"></rect><text text-anchor="middle" x="380" y="73">0.2</text><rect fill="#dcebe5" height="30" stroke="#7395ad" width="60" x="220" y="88"></rect><text text-anchor="middle" x="250" y="108">0.7</text><rect fill="#dcebe5" height="30" stroke="#7395ad" width="60" x="285" y="88"></rect><text text-anchor="middle" x="315" y="108">0.2</text><rect fill="#dcebe5" height="30" stroke="#7395ad" width="60" x="350" y="88"></rect><text text-anchor="middle" x="380" y="108">-0.4</text><rect fill="#e4edf4" height="30" stroke="#7395ad" width="60" x="220" y="123"></rect><text text-anchor="middle" x="250" y="143">0.1</text><rect fill="#e4edf4" height="30" stroke="#7395ad" width="60" x="285" y="123"></rect><text text-anchor="middle" x="315" y="143">0.5</text><rect fill="#e4edf4" height="30" stroke="#7395ad" width="60" x="350" y="123"></rect><text text-anchor="middle" x="380" y="143">0.3</text><text x="45" y="105">ID = 2</text><path d="M100 103 H215" stroke="#b47845" stroke-width="2"></path><text x="450" y="105">→ (0.7, 0.2, −0.4)</text></svg><figcaption>図29.3　EmbeddingはIDに対応する行を取り出す</figcaption></figure><h2 id="s5">29.5 Tabular MLPの設計</h2><p>数値特徴量は標準化し、カテゴリはEmbeddingへ入力する。両者を結合したベクトルにDense・ReLU・Dropoutを適用する。幅や深さを増やす前に小さな基準モデルを作り、過学習を確認する。例えば数値3列、語彙8・埋め込み幅4なら結合幅7、Dense(32)のパラメータは(7+1)×32=256、Embeddingは32個である。</p><figure><svg aria-label="数値特徴量とカテゴリ特徴量の統合" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 270" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="#7395ad" stroke-width="2"><path d="M160 48 V75 M480 48 V75 M160 115 V135 H320 V155 M480 115 V135 H320 M320 195 V215"></path></g><g fill="#e4edf4" stroke="#7395ad"><rect height="38" rx="5" width="230" x="45" y="10"></rect><rect height="38" rx="5" width="230" x="365" y="10"></rect><rect height="40" rx="5" width="230" x="45" y="75"></rect><rect height="40" rx="5" width="230" x="365" y="75"></rect></g><rect fill="#dcebe5" height="40" rx="5" stroke="#397b70" width="230" x="205" y="155"></rect><rect fill="#f4e7d7" height="40" rx="5" stroke="#b47845" width="230" x="205" y="215"></rect><g fill="#263e4c" text-anchor="middle"><text x="160" y="34">数値 (B,3)</text><text x="480" y="34">カテゴリID (B,1)</text><text x="160" y="100">標準化</text><text x="480" y="100">Embedding → Flatten (B,4)</text><text x="320" y="180">Concatenate (B,7)</text><text x="320" y="240">Dense → 出力</text></g></svg><figcaption>図29.4　数値特徴量とカテゴリ特徴量の統合</figcaption></figure><div class="code-head"><span>コード29.3　回帰・分類で共通のモデル構築</span><button data-copy="code3" type="button">コピー</button></div><pre><code id="code3">import tensorflow as tf
+from tensorflow import keras
+
+def build_model(n_num, vocab_size, task="regression"):
+    num = keras.Input((n_num,), name="num")
+    cat = keras.Input((1,), dtype="int32", name="cat")
+    e = keras.layers.Embedding(vocab_size, 4)(cat)
+    e = keras.layers.Flatten()(e)
+    x = keras.layers.Concatenate()([num, e])
+    x = keras.layers.Dense(32, activation="relu")(x)
+    x = keras.layers.Dropout(.1)(x)
+    x = keras.layers.Dense(16, activation="relu")(x)
+    out = keras.layers.Dense(1)(x)
+    model = keras.Model({"num": num, "cat": cat}, out)
+    if task == "regression":
+        loss = "mse"
+        metrics = [keras.metrics.RootMeanSquaredError(name="rmse")]
+    elif task == "binary":
+        loss = keras.losses.BinaryCrossentropy(from_logits=True)
+        metrics = [keras.metrics.AUC(from_logits=True, name="auc")]
+    else:
+        raise ValueError(task)
+    model.compile(optimizer=keras.optimizers.Adam(.001), loss=loss, metrics=metrics)
+    return model
+</code></pre><h2 id="s6">29.6 ツリーベースモデルとの比較</h2><p>表形式データでは勾配ブースティング決定木（GBDT）が強力な基準となる。木は特徴量の閾値による分割を組み合わせるため、非線形な相互作用を表現でき、一般に標準化を必要としない。LightGBM・XGBoost・CatBoostは代表的な選択肢であるが、カテゴリや欠損の処理仕様は異なる。MLPは滑らかな関数近似、Embedding、他モダリティとの統合に利点がある。どちらが優れるかはデータ依存である。</p><div class="table-wrap"><table><tr><th>モデル</th><th>利点</th><th>注意点</th></tr><tr><td>線形モデル</td><td>高速・解釈しやすい</td><td>相互作用は特徴量化</td></tr><tr><td>GBDT</td><td>閾値・相互作用に強い</td><td>外挿が苦手な場合</td></tr><tr><td>MLP</td><td>連続的表現・Embedding</td><td>尺度・学習設定に敏感</td></tr></table></div><div class="code-head"><span>コード29.4　非線形回帰の基準モデル比較</span><button data-copy="code4" type="button">コピー</button></div><pre><code id="code4">import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import Ridge
+from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.preprocessing import StandardScaler, PolynomialFeatures
+from sklearn.pipeline import make_pipeline
+from sklearn.metrics import mean_squared_error
+rng = np.random.default_rng(29)
+X = rng.uniform(-2, 2, (2000, 4))
+y = 2*X[:,0]*X[:,1] + X[:,2]**2 + rng.normal(0,.4,len(X))
+Xtr,Xva,ytr,yva = train_test_split(X,y,test_size=.25,random_state=29)
+models = {"Ridge": make_pipeline(StandardScaler(), Ridge()),
+          "Polynomial Ridge": make_pipeline(PolynomialFeatures(2), StandardScaler(), Ridge()),
+          "HistGradientBoosting": HistGradientBoostingRegressor(random_state=29)}
+scores = {}
+for name, model in models.items():
+    model.fit(Xtr,ytr)
+    scores[name] = mean_squared_error(yva,model.predict(Xva))**.5
+print(scores)
+</code></pre><figure><svg aria-label="人工データの検証RMSE（実測、小さいほど良い）" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 160" xmlns="http://www.w3.org/2000/svg"><text x="15" y="30">Ridge</text><rect fill="#7395ad" height="24" rx="3" width="350.0" x="205" y="12"></rect><text x="565.0" y="30">2.917</text><text x="15" y="78">Polynomial Ridge</text><rect fill="#397b70" height="24" rx="3" width="48.2" x="205" y="60"></rect><text x="263.2" y="78">0.402</text><text x="15" y="126">HistGradientBoosting</text><rect fill="#b47845" height="24" rx="3" width="101.8" x="205" y="108"></rect><text x="316.8" y="126">0.848</text></svg><figcaption>図29.5　人工データの検証RMSE（実測、小さいほど良い）</figcaption></figure><p>この実験では真の関数に二次の相互作用を含めたため、多項式特徴量が有利である。これは一般的なモデル順位ではない。MLPとの比較は後述の共通Foldで行う。</p><h2 id="s7">29.7 目的変数と評価指標の設計</h2><p>価格など正の歪んだ目的変数ではlog1p変換が有効な場合がある。元の尺度に戻すにはexpm1を用いる。ただし対数空間の平均を逆変換しても元尺度の条件付き平均とは一般に一致しない。評価指標がRMSEなら元の尺度で検証する。RMSLEは非負の目的変数・予測値を前提とする。</p>$$\mathrm{RMSE}=\sqrt{\frac1N\sum_i(y_i-\hat y_i)^2}$$<p>分類ではBCEを学習に使い、ROC-AUC、Average Precision（AP）やPR曲線の面積、Log Lossなどコンペの指標で評価する。不均衡データでAccuracyだけを見ると多数派予測が高得点になる場合がある。クラス重みを適用した場合、出力確率の校正が変わることがあるので、独立した検証データで確認する。</p><div class="table-wrap"><table><tr><th>指標</th><th>予測形式</th><th>注意点</th></tr><tr><td>RMSE</td><td>実数</td><td>外れ値の影響</td></tr><tr><td>RMSLE</td><td>非負実数</td><td>対数尺度</td></tr><tr><td>ROC-AUC</td><td>連続スコア</td><td>順位評価</td></tr><tr><td>Log Loss</td><td>確率</td><td>過信を罰する</td></tr><tr><td>F1</td><td>クラス</td><td>閾値を検証で選ぶ</td></tr></table></div><div class="code-head"><span>コード29.5　分類の評価例（人工予測）</span><button data-copy="code5" type="button">コピー</button></div><pre><code id="code5">import numpy as np
+from sklearn.metrics import roc_auc_score, average_precision_score, log_loss, f1_score
+y = np.array([0, 0, 1, 0, 1, 1])
+p = np.array([.1, .4, .35, .2, .8, .7])
+print(roc_auc_score(y,p), average_precision_score(y,p), log_loss(y,p))
+print(f1_score(y,p &gt;= .5))
+</code></pre><h2 id="s8">29.8 Foldごとの前処理とOOF予測</h2><p>OOF（out-of-fold）予測では、各訓練行に対して、その行を学習に使用していないモデルの予測を保存する。全行のOOFをまとめて評価することで、Foldごとのサイズの違いも反映できる。ただしAUCなどではFold間のスコア尺度の違いにも注意する。RMSEはFold RMSEの単純平均と全OOFのRMSEが一致しないことに注意する。</p><p>外側Foldの評価を使って多数の設定を選べば、OOFも楽観的になる。最終評価には独立テストまたはNested CVが必要となる。テスト予測はFoldモデルの連続値や確率を平均する。分類のロジット平均と確率平均は一般に異なる。</p><figure><svg aria-label="5-FoldのOOF予測とテスト予測の平均" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 220" xmlns="http://www.w3.org/2000/svg"><text x="15" y="32">Fold 1</text><rect fill="#b47845" height="26" rx="3" stroke="#7395ad" width="60" x="110" y="12"></rect><text fill="white" text-anchor="middle" x="140" y="30">OOF</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="175" y="12"></rect><text fill="#263e4c" text-anchor="middle" x="205" y="30">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="240" y="12"></rect><text fill="#263e4c" text-anchor="middle" x="270" y="30">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="305" y="12"></rect><text fill="#263e4c" text-anchor="middle" x="335" y="30">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="370" y="12"></rect><text fill="#263e4c" text-anchor="middle" x="400" y="30">訓練</text><text x="465" y="30">→ test 1</text><text x="15" y="67">Fold 2</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="110" y="47"></rect><text fill="#263e4c" text-anchor="middle" x="140" y="65">訓練</text><rect fill="#b47845" height="26" rx="3" stroke="#7395ad" width="60" x="175" y="47"></rect><text fill="white" text-anchor="middle" x="205" y="65">OOF</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="240" y="47"></rect><text fill="#263e4c" text-anchor="middle" x="270" y="65">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="305" y="47"></rect><text fill="#263e4c" text-anchor="middle" x="335" y="65">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="370" y="47"></rect><text fill="#263e4c" text-anchor="middle" x="400" y="65">訓練</text><text x="465" y="65">→ test 2</text><text x="15" y="102">Fold 3</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="110" y="82"></rect><text fill="#263e4c" text-anchor="middle" x="140" y="100">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="175" y="82"></rect><text fill="#263e4c" text-anchor="middle" x="205" y="100">訓練</text><rect fill="#b47845" height="26" rx="3" stroke="#7395ad" width="60" x="240" y="82"></rect><text fill="white" text-anchor="middle" x="270" y="100">OOF</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="305" y="82"></rect><text fill="#263e4c" text-anchor="middle" x="335" y="100">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="370" y="82"></rect><text fill="#263e4c" text-anchor="middle" x="400" y="100">訓練</text><text x="465" y="100">→ test 3</text><text x="15" y="137">Fold 4</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="110" y="117"></rect><text fill="#263e4c" text-anchor="middle" x="140" y="135">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="175" y="117"></rect><text fill="#263e4c" text-anchor="middle" x="205" y="135">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="240" y="117"></rect><text fill="#263e4c" text-anchor="middle" x="270" y="135">訓練</text><rect fill="#b47845" height="26" rx="3" stroke="#7395ad" width="60" x="305" y="117"></rect><text fill="white" text-anchor="middle" x="335" y="135">OOF</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="370" y="117"></rect><text fill="#263e4c" text-anchor="middle" x="400" y="135">訓練</text><text x="465" y="135">→ test 4</text><text x="15" y="172">Fold 5</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="110" y="152"></rect><text fill="#263e4c" text-anchor="middle" x="140" y="170">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="175" y="152"></rect><text fill="#263e4c" text-anchor="middle" x="205" y="170">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="240" y="152"></rect><text fill="#263e4c" text-anchor="middle" x="270" y="170">訓練</text><rect fill="#e4edf4" height="26" rx="3" stroke="#7395ad" width="60" x="305" y="152"></rect><text fill="#263e4c" text-anchor="middle" x="335" y="170">訓練</text><rect fill="#b47845" height="26" rx="3" stroke="#7395ad" width="60" x="370" y="152"></rect><text fill="white" text-anchor="middle" x="400" y="170">OOF</text><text x="465" y="170">→ test 5</text><text text-anchor="middle" x="500" y="205">5予測を平均</text></svg><figcaption>図29.6　5-FoldのOOF予測とテスト予測の平均</figcaption></figure><h2 id="s9">29.9 実践：住宅価格の回帰パイプライン</h2><p>以下では人工住宅データを生成し、面積・築年数・部屋数・地域から価格（任意の単位）を予測する。外部データのダウンロードは不要である。第29.5節のbuild_modelを先に実行する。外側5-Foldの訓練部分を内側訓練と検証に分け、数値補完・標準化・語彙を内側訓練だけから推定する。比較用GBDTも同じ内側訓練行を使う。価格は100で割り学習を安定させ、評価時に元尺度へ戻す。</p><div class="code-head"><span>コード29.6　データ生成とFold内前処理</span><button data-copy="code6" type="button">コピー</button></div><pre><code id="code6">import numpy as np
+import pandas as pd
+from sklearn.model_selection import KFold, train_test_split
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
+from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.metrics import mean_squared_error
+rng = np.random.default_rng(29)
+n = 1800
+df = pd.DataFrame({"area": rng.uniform(20,150,n),
+    "age": rng.uniform(0,45,n), "rooms": rng.integers(1,6,n),
+    "region": rng.choice(["A","B","C","D"],n)})
+y = (30 + 2*df.area - .8*df.age + 4*df.rooms
+     + 20*(df.region=="A") + .01*df.area*df.rooms
+     + rng.normal(0,8,n)).to_numpy(dtype="float32")
+df.loc[rng.choice(n,100,replace=False),"area"] = np.nan
+df.loc[rng.choice(n,60,replace=False),"region"] = None
+train, test = df.iloc[:1500].copy(), df.iloc[1500:].copy()
+y_train = y[:1500]
+# テストの正解は最後まで使用しない
+cols = ["area", "age", "rooms"]
+def fit_preprocessor(frame):
+    pipe = make_pipeline(SimpleImputer(strategy="median", add_indicator=True), StandardScaler())
+    pipe.fit(frame[cols])
+    vocab = {v:i+1 for i,v in enumerate(sorted(frame.region.fillna("__MISSING__").unique()))}
+    return pipe, vocab
+
+def transform(frame, pipe, vocab):
+    num = pipe.transform(frame[cols]).astype("float32")
+    cat = frame.region.fillna("__MISSING__").map(vocab).fillna(0).to_numpy(dtype="int32")[:,None]
+    return {"num": num, "cat": cat}
+
+def tree_input(x, vocab):
+    onehot = np.eye(len(vocab)+1, dtype="float32")[x["cat"][:,0]]
+    return np.concatenate([x["num"], onehot], axis=1)
+</code></pre><div class="code-head"><span>コード29.7　OOF学習と提出ファイル作成</span><button data-copy="code7" type="button">コピー</button></div><pre><code id="code7">from pathlib import Path
+import joblib
+out = Path("run29")
+out.mkdir(exist_ok=True)
+oof = np.full(len(train), np.nan)
+oof_tree = np.full(len(train), np.nan)
+test_preds = []
+for fold, (outer_tr, va) in enumerate(KFold(5, shuffle=True, random_state=29).split(train)):
+    tr, es = train_test_split(outer_tr, test_size=.15, random_state=29+fold)
+    keras.backend.clear_session()
+    keras.utils.set_random_seed(29+fold)
+    pipe, vocab = fit_preprocessor(train.iloc[tr])
+    a,b,c,t = [transform(f,pipe,vocab) for f in (train.iloc[tr],train.iloc[es],train.iloc[va],test)]
+    model = build_model(a["num"].shape[1],len(vocab)+1)
+    model.fit(a,y_train[tr,None]/100,validation_data=(b,y_train[es,None]/100),
+              epochs=100,batch_size=32,verbose=0,
+              callbacks=[keras.callbacks.EarlyStopping(patience=10,restore_best_weights=True)])
+    oof[va] = model.predict(c,verbose=0).ravel()*100
+    test_preds.append(model.predict(t,verbose=0).ravel()*100)
+    model.save(out/f"fold{fold}.keras")
+    joblib.dump((pipe,vocab),out/f"prep{fold}.joblib")
+    tree = HistGradientBoostingRegressor(random_state=29,early_stopping=False)
+    tree.fit(tree_input(a,vocab),y_train[tr])
+    oof_tree[va] = tree.predict(tree_input(c,vocab))
+assert np.isfinite(oof).all() and np.isfinite(oof_tree).all()
+print("MLP OOF RMSE",mean_squared_error(y_train,oof)**.5)
+print("GBDT OOF RMSE",mean_squared_error(y_train,oof_tree)**.5)
+pred = np.mean(test_preds,axis=0)
+pd.DataFrame({"id":test.index,"price":pred}).to_csv(out/"submission.csv",index=False)
+pd.DataFrame({"id":train.index,"target":y_train,"mlp":oof,"gbdt":oof_tree}).to_csv(out/"oof.csv",index=False)
+</code></pre><p>ここでは提出例としてMLPの予測を固定採用する。OOFの比較結果を見てモデルを選ぶ場合は別途独立評価を行う。実際のKaggleではsample_submission.csvのID順・列名・行数と一致するように結合し、重複や欠落を検査する。joblibファイルは信頼できる自分の成果物のみ読み込む。TensorFlowによる学習結果は実行して確認すること。</p><h2 id="s10">29.10 実践：二値分類への変更</h2><p>顧客離脱などの二値分類では、出力は1ロジットとしBCEを用いる。外側・内側の分割はクラス比を維持する層化分割に置き換える。以下は前節の人工住宅データを「高価格帯か」という二値分類に変更する前節のコード29.3・29.6を実行してから取り組む演習である。閾値200は事前固定する。評価には確率を用いる。</p><div class="code-head"><span>コード29.8　層化分割による二値分類の学習</span><button data-copy="code8" type="button">コピー</button></div><pre><code id="code8">from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import roc_auc_score, log_loss
+import tensorflow as tf
+labels = (y_train &gt;= 200).astype("float32")
+probs = np.full(len(train),np.nan)
+for fold,(outer_tr,va) in enumerate(StratifiedKFold(5,shuffle=True,random_state=29).split(train,labels)):
+    tr,es = train_test_split(outer_tr,test_size=.2,stratify=labels[outer_tr],random_state=29+fold)
+    keras.backend.clear_session()
+    keras.utils.set_random_seed(29+fold)
+    pipe,vocab = fit_preprocessor(train.iloc[tr])
+    a,b,c = [transform(train.iloc[i],pipe,vocab) for i in (tr,es,va)]
+    model = build_model(a["num"].shape[1],len(vocab)+1,task="binary")
+    model.fit(a,labels[tr,None],validation_data=(b,labels[es,None]),
+              epochs=60,batch_size=32,verbose=0,
+              callbacks=[keras.callbacks.EarlyStopping(patience=8,restore_best_weights=True)])
+    probs[va] = tf.sigmoid(model.predict(c,verbose=0)).numpy().ravel()
+assert np.isfinite(probs).all()
+print("AUC",roc_auc_score(labels,probs),"Log Loss",log_loss(labels,probs))
+</code></pre><p>実務では少数クラス数がFold数を下回らないか、各検証部分に両クラスが存在するかを確認する。閾値を最適化するなら外側検証ラベルに依存しない手順を設計する。</p><h2 id="s11">29.11 性能改善と実験管理</h2><p>基準モデルを構築した後、特徴量、埋め込み幅、隠れ層、Dropout、学習率を一つずつ変更する。特徴量群を外して性能を比較するアブレーションは有効だが、相関した特徴量の寄与は単独では判断しにくい。Permutation Importanceも相関や分布外の組み合わせに注意する。訓練データとテストの分布差、欠損率や未知カテゴリ率の変化を監視する。</p><div class="table-wrap"><table><tr><th>症状</th><th>確認項目</th><th>対策候補</th></tr><tr><td>訓練も検証も悪い</td><td>尺度・ラベル・容量</td><td>前処理確認、学習率調整</td></tr><tr><td>訓練のみ良い</td><td>過学習・リーク</td><td>正則化、分割見直し</td></tr><tr><td>Fold間の差が大きい</td><td>グループ・分布差</td><td>分割設計の再検討</td></tr><tr><td>提出だけ悪い</td><td>列順・ID・分布差</td><td>推論処理と提出を検査</td></tr></table></div><figure><svg aria-label="実験の改善サイクル" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 115" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="48" rx="6" stroke="#7395ad" width="102.0" x="30.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="81.0" y="74">基準モデル</text><path d="M132.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="48" rx="6" stroke="#7395ad" width="102.0" x="146.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="197.0" y="74">仮説</text><path d="M248.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="48" rx="6" stroke="#7395ad" width="102.0" x="262.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="313.0" y="74">条件を変更</text><path d="M364.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="48" rx="6" stroke="#7395ad" width="102.0" x="378.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="429.0" y="74">OOF比較</text><path d="M480.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="48" rx="6" stroke="#7395ad" width="102.0" x="494.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="545.0" y="74">記録</text></svg><figcaption>図29.7　実験の改善サイクル</figcaption></figure><h2 id="s12">29.12 まとめと確認問題</h2><p>表形式データでは、モデルの高度さよりも予測時点に整合する特徴量、検証設計、前処理の再現性が重要になる。MLPとGBDTの両方を基準にして、実験結果に基づいて改善する。</p><details id="ex-1"><summary>問1　カテゴリIDを直接数値特徴にする問題は？</summary><p>根拠のない大小関係を与える。</p></details><details id="ex-2"><summary>問2　前処理のfitはどの行で行うか？</summary><p>各Foldの内側訓練行だけ。</p></details><details id="ex-3"><summary>問3　Embeddingの語彙100、幅8のパラメータ数は？</summary><p>800。語彙数にOOV等を含む。</p></details><details id="ex-4"><summary>問4　GBDTに標準化は必須か？</summary><p>一般には不要。</p></details><details id="ex-5"><summary>問5　OOFの意味は？</summary><p>各行を学習に用いていないモデルによる予測。</p></details><details id="ex-6"><summary>問6　RMSEをFoldごとに平均する場合の注意は？</summary><p>全OOFのRMSEとは一般に一致しない。</p></details><details id="ex-7"><summary>問7　BCEのロジットを確率にするには？</summary><p>Sigmoidを適用する。</p></details><details id="ex-8"><summary>問8　テストで未知カテゴリが出た場合は？</summary><p>固定済みのOOV IDに変換する。</p></details><details id="ex-9"><summary>問9　発展：EmbeddingをOne-hotへ変更して比較せよ。</summary><p>同一Fold・前処理・シードで、カテゴリIDをOOVを含む語彙数VのOne-hotへ変換し、結合する。コード29.6のtree_input(a, vocab)と同様に変換し、EmbeddingなしのDenseモデルに入力する。数値入力幅をpとすると、最初のDenseとEmbeddingの合計は4V+32(p+5)、One-hot方式では32(p+V+1)となる（バイアスあり）。OOF RMSEとモデル容量を比較し、独立テストで選択結果を検証する。</p></details><h3>参考資料</h3><p><a href="https://keras.io/api/layers/core_layers/embedding/">Keras Embedding</a>、<a href="https://scikit-learn.org/stable/modules/cross_validation.html">scikit-learn Cross-validation</a>。</p><nav aria-label="章送り" class="chap-nav"><a href="chapter28.html"><span class="dir">◀ 前章</span><span class="ttl">第28章　Autoencoderと表現学習</span></a><a href="chapter30.html"><span class="dir">次章 ▶</span><span class="ttl">第30章　画像分類</span></a></nav><div class="toc-back"><a href="#">章の先頭へ戻る</a>　<a href="index.html">全体目次へ</a></div></main><script>document.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);b.textContent="コピー済み";}catch(e){b.textContent="選択してコピーしてください";}}));</script></body></html>

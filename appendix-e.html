@@ -1,0 +1,1807 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>付録E 代表的なモデルの比較｜深層学習の基礎と実践</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&amp;family=Shippori+Mincho:wght@500;600;700&amp;family=Zen+Kaku+Gothic+Antique:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="style.css" rel="stylesheet"/><script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async="" src="https://cdn.jsdelivr.net/npm/mathjax@3.2.1/es5/tex-svg-full.js"></script></head><body><div class="topbar"><div class="inner"><a class="book" href="index.html">深層学習の基礎と実践</a><span>付録E</span></div></div><main class="page"><header class="chapter-head"><p class="eyebrow">Appendix E</p><h1>付録E　代表的なモデルの比較</h1><p class="lead">データの構造・計算予算・評価目的からモデルを選ぶ</p></header><p>モデルの優劣はデータ量、事前学習、検証分割、計算予算によって変わる。本付録は第24〜38章を横断する選定用リファレンスであり、万能の順位表ではない。</p><nav class="section-toc"><b>付録の目次</b><ol><li><a href="#s1">E.1 モデル選定の早見表</a></li><li><a href="#s2">E.2 計算量とパラメータ数の読み方</a></li><li><a href="#s3">E.3 表形式データとMLP</a></li><li><a href="#s4">E.4 CNNと画像バックボーン</a></li><li><a href="#s5">E.5 系列モデル：RNN・LSTM・GRU・TCN</a></li><li><a href="#s6">E.6 Attention・Transformer</a></li><li><a href="#s7">E.7 Autoencoderと表現学習</a></li><li><a href="#s8">E.8 検出・領域予測モデル</a></li><li><a href="#s9">E.9 推薦・グラフ・マルチモーダル</a></li><li><a href="#s10">E.10 転移学習と実装上の比較</a></li><li><a href="#s11">E.11 公平な比較実験と選定チェックリスト</a></li></ol></nav><h2 id="s1">E.1　モデル選定の早見表</h2><p>まず入力と出力の構造を確認する。表形式では非深層学習モデルも有力な対照群となる。</p><div class="table-wrap"><table><thead><tr><th>タスク</th><th>最初の候補</th><th>発展候補</th><th>評価</th></tr></thead><tbody><tr><td>表形式回帰・分類</td><td>線形モデル・GBDT・MLP</td><td>Embedding付きMLP</td><td>RMSE・AUC</td></tr><tr><td>画像分類</td><td>小型CNN</td><td>ResNet・EfficientNet・ViT</td><td>Accuracy・F1</td></tr><tr><td>物体検出</td><td>一段検出器</td><td>Faster R-CNN・DETR</td><td>mAP</td></tr><tr><td>領域予測</td><td>U-Net</td><td>DeepLab・Mask R-CNN（インスタンス）</td><td>Dice・mIoU</td></tr><tr><td>文章分類</td><td>TF-IDF＋線形分類</td><td>BiGRU・BERT</td><td>Macro F1</td></tr><tr><td>時系列</td><td>ナイーブ・ラグ回帰</td><td>GRU・TCN・Transformer</td><td>MAE・RMSE</td></tr><tr><td>異常検知</td><td>統計的閾値・Isolation Forest</td><td>AE</td><td>AP（または定義を明示したPR-AUC）・Recall</td></tr><tr><td>推薦</td><td>人気順・行列分解</td><td>Two-tower</td><td>Recall@K・NDCG@K</td></tr><tr><td>グラフ</td><td>属性MLP</td><td>GCN・GAT</td><td>Accuracy・AUC</td></tr><tr><td>複数モダリティ</td><td>特徴連結</td><td>Cross-Attention</td><td>タスク固有</td></tr></tbody></table></div><h2 id="s2">E.2　計算量とパラメータ数の読み方</h2><p>以下は標本1件・層1個の概算。$d$ は入力幅、$h$ は隠れ幅、$T$ は系列長、$k$ はカーネル幅、$C_i,C_o$ は入出力チャネル、$H,W$ は出力空間寸法。MAC（積和）を数え、バイアス加算・活性化・正規化は省略する。FLOPsはMACの約2倍と数える流儀もある。</p><div class="table-wrap"><table><thead><tr><th>演算</th><th>パラメータ（バイアス除外）</th><th>MAC概算</th><th>注意</th></tr></thead><tbody><tr><td>Dense</td><td>dh</td><td>dh</td><td>位置ごとなら位置数を掛ける</td></tr><tr><td>Conv2D</td><td>k²CiCo</td><td>HWk²CiCo</td><td>出力サイズを使う</td></tr><tr><td>Depthwise＋Pointwise</td><td>k²Ci+CiCo</td><td>HW(k²Ci+CiCo)</td><td>depth multiplier=1</td></tr><tr><td>SimpleRNN</td><td>h(d+h)</td><td>Th(d+h)</td><td>時間方向に逐次</td></tr><tr><td>LSTM</td><td>4h(d+h)</td><td>4Th(d+h)</td><td>3ゲートと候補状態の計4変換</td></tr><tr><td>GRU</td><td>3h(d+h)</td><td>3Th(d+h)</td><td>reset_afterでバイアス数が変わる</td></tr><tr><td>Self-Attention</td><td>4d²</td><td>4Td²+2T²d</td><td>Q・K・Vの全ヘッド合計幅と出力幅がd、FFNなし</td></tr><tr><td>Transformer FFN</td><td>2dm</td><td>2Tdm</td><td>中間幅m</td></tr><tr><td>GCN</td><td>dh</td><td>Ndh+Eh</td><td>疎隣接、Nノード、Eは自己ループ等を含む隣接行列の非零要素数。特徴変換を先に行う場合</td></tr></tbody></table></div><p>例えば $k=3,C_i=32,C_o=64$ の通常畳み込みは18,432重み、分離畳み込みは2,336重み。約7.9倍の削減だが、実時間の高速化率とは一致しない。メモリ帯域や演算カーネルの効率も測る（<a href="chapter38.html">第38章</a>）。</p><figure><svg style="width:100%;height:auto" role="img" aria-label="通常畳み込みと分離畳み込みの重み数（理論値）"  xmlns:xlink="http://www.w3.org/1999/xlink" width="504pt" height="252pt" viewBox="0 0 504 252" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-11-26T00:16:36.687652</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="appendix-e-svg1-figure_1">
+  <g id="appendix-e-svg1-patch_1">
+   <path d="M 0 252 
+L 504 252 
+L 504 0 
+L 0 0 
+z
+" style="fill: #fffdf9"/>
+  </g>
+  <g id="appendix-e-svg1-axes_1">
+   <g id="appendix-e-svg1-patch_2">
+    <path d="M 75.26 207.52 
+L 492.12 207.52 
+L 492.12 11.88 
+L 75.26 11.88 
+z
+" style="fill: #fffdf9"/>
+   </g>
+   <g id="appendix-e-svg1-matplotlib.axis_1">
+    <g id="appendix-e-svg1-xtick_1">
+     <g id="appendix-e-svg1-line2d_1">
+      <path d="M 94.208182 207.52 
+L 94.208182 11.88 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_2">
+      <defs>
+       <path id="appendix-e-svg1-m3236de171c" d="M 0 0 
+L 0 3.5 
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3236de171c" x="94.208182" y="207.52" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_1">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="94.208182" y="222.878281" transform="rotate(-0 94.208182 222.878281)">1</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-xtick_2">
+     <g id="appendix-e-svg1-line2d_3">
+      <path d="M 141.578636 207.52 
+L 141.578636 11.88 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_4">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3236de171c" x="141.578636" y="207.52" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_2">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="141.578636" y="222.878281" transform="rotate(-0 141.578636 222.878281)">2</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-xtick_3">
+     <g id="appendix-e-svg1-line2d_5">
+      <path d="M 188.949091 207.52 
+L 188.949091 11.88 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_6">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3236de171c" x="188.949091" y="207.52" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_3">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="188.949091" y="222.878281" transform="rotate(-0 188.949091 222.878281)">3</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-xtick_4">
+     <g id="appendix-e-svg1-line2d_7">
+      <path d="M 236.319545 207.52 
+L 236.319545 11.88 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_8">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3236de171c" x="236.319545" y="207.52" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_4">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="236.319545" y="222.878281" transform="rotate(-0 236.319545 222.878281)">4</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-xtick_5">
+     <g id="appendix-e-svg1-line2d_9">
+      <path d="M 283.69 207.52 
+L 283.69 11.88 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_10">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3236de171c" x="283.69" y="207.52" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_5">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="283.69" y="222.878281" transform="rotate(-0 283.69 222.878281)">5</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-xtick_6">
+     <g id="appendix-e-svg1-line2d_11">
+      <path d="M 331.060455 207.52 
+L 331.060455 11.88 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_12">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3236de171c" x="331.060455" y="207.52" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_6">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="331.060455" y="222.878281" transform="rotate(-0 331.060455 222.878281)">6</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-xtick_7">
+     <g id="appendix-e-svg1-line2d_13">
+      <path d="M 378.430909 207.52 
+L 378.430909 11.88 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_14">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3236de171c" x="378.430909" y="207.52" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_7">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="378.430909" y="222.878281" transform="rotate(-0 378.430909 222.878281)">7</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-xtick_8">
+     <g id="appendix-e-svg1-line2d_15">
+      <path d="M 425.801364 207.52 
+L 425.801364 11.88 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_16">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3236de171c" x="425.801364" y="207.52" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_8">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="425.801364" y="222.878281" transform="rotate(-0 425.801364 222.878281)">8</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-xtick_9">
+     <g id="appendix-e-svg1-line2d_17">
+      <path d="M 473.171818 207.52 
+L 473.171818 11.88 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_18">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3236de171c" x="473.171818" y="207.52" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_9">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="473.171818" y="222.878281" transform="rotate(-0 473.171818 222.878281)">9</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-text_10">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="283.69" y="237.524219" transform="rotate(-0 283.69 237.524219)">Kernel width</text>
+    </g>
+   </g>
+   <g id="appendix-e-svg1-matplotlib.axis_2">
+    <g id="appendix-e-svg1-ytick_1">
+     <g id="appendix-e-svg1-line2d_19">
+      <path d="M 75.26 200.850455 
+L 492.12 200.850455 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_20">
+      <defs>
+       <path id="appendix-e-svg1-m3c794160dc" d="M 0 0 
+L -3.5 0 
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3c794160dc" x="75.26" y="200.850455" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_11">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="68.26" y="205.029595" transform="rotate(-0 68.26 205.029595)">0</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-ytick_2">
+     <g id="appendix-e-svg1-line2d_21">
+      <path d="M 75.26 173.712005 
+L 492.12 173.712005 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_22">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3c794160dc" x="75.26" y="173.712005" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_12">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="68.26" y="177.891145" transform="rotate(-0 68.26 177.891145)">25000</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-ytick_3">
+     <g id="appendix-e-svg1-line2d_23">
+      <path d="M 75.26 146.573555 
+L 492.12 146.573555 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_24">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3c794160dc" x="75.26" y="146.573555" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_13">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="68.26" y="150.752695" transform="rotate(-0 68.26 150.752695)">50000</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-ytick_4">
+     <g id="appendix-e-svg1-line2d_25">
+      <path d="M 75.26 119.435105 
+L 492.12 119.435105 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_26">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3c794160dc" x="75.26" y="119.435105" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_14">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="68.26" y="123.614245" transform="rotate(-0 68.26 123.614245)">75000</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-ytick_5">
+     <g id="appendix-e-svg1-line2d_27">
+      <path d="M 75.26 92.296655 
+L 492.12 92.296655 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_28">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3c794160dc" x="75.26" y="92.296655" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_15">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="68.26" y="96.475795" transform="rotate(-0 68.26 96.475795)">100000</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-ytick_6">
+     <g id="appendix-e-svg1-line2d_29">
+      <path d="M 75.26 65.158205 
+L 492.12 65.158205 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_30">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3c794160dc" x="75.26" y="65.158205" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_16">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="68.26" y="69.337346" transform="rotate(-0 68.26 69.337346)">125000</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-ytick_7">
+     <g id="appendix-e-svg1-line2d_31">
+      <path d="M 75.26 38.019755 
+L 492.12 38.019755 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg1-line2d_32">
+      <g>
+       <use xlink:href="#appendix-e-svg1-m3c794160dc" x="75.26" y="38.019755" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg1-text_17">
+      <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="68.26" y="42.198896" transform="rotate(-0 68.26 42.198896)">150000</text>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-text_18">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="19.979844" y="109.7" transform="rotate(-90 19.979844 109.7)">Weights</text>
+    </g>
+   </g>
+   <g id="appendix-e-svg1-line2d_33">
+    <path d="M 94.208182 198.627273 
+L 188.949091 180.841818 
+L 283.69 145.270909 
+L 378.430909 91.914545 
+L 473.171818 20.772727 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+    <defs>
+     <path id="appendix-e-svg1-mf120987c75" d="M 0 3 
+C 0.795609 3 1.55874 2.683901 2.12132 2.12132 
+C 2.683901 1.55874 3 0.795609 3 0 
+C 3 -0.795609 2.683901 -1.55874 2.12132 -2.12132 
+C 1.55874 -2.683901 0.795609 -3 0 -3 
+C -0.795609 -3 -1.55874 -2.683901 -2.12132 -2.12132 
+C -2.683901 -1.55874 -3 -0.795609 -3 0 
+C -3 0.795609 -2.683901 1.55874 -2.12132 2.12132 
+C -1.55874 2.683901 -0.795609 3 0 3 
+z
+" style="stroke: #1f77b4"/>
+    </defs>
+    <g clip-path="url(#appendix-e-svg1-p575a8ddf33)">
+     <use xlink:href="#appendix-e-svg1-mf120987c75" x="94.208182" y="198.627273" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg1-mf120987c75" x="188.949091" y="180.841818" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg1-mf120987c75" x="283.69" y="145.270909" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg1-mf120987c75" x="378.430909" y="91.914545" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg1-mf120987c75" x="473.171818" y="20.772727" style="fill: #1f77b4; stroke: #1f77b4"/>
+    </g>
+   </g>
+   <g id="appendix-e-svg1-line2d_34">
+    <path d="M 94.208182 198.592536 
+L 188.949091 198.314638 
+L 283.69 197.758842 
+L 378.430909 196.925149 
+L 473.171818 195.813558 
+" clip-path="url(#appendix-e-svg1-p575a8ddf33)" style="fill: none; stroke: #ff7f0e; stroke-width: 1.5; stroke-linecap: square"/>
+    <defs>
+     <path id="appendix-e-svg1-m0817eabd83" d="M 0 3 
+C 0.795609 3 1.55874 2.683901 2.12132 2.12132 
+C 2.683901 1.55874 3 0.795609 3 0 
+C 3 -0.795609 2.683901 -1.55874 2.12132 -2.12132 
+C 1.55874 -2.683901 0.795609 -3 0 -3 
+C -0.795609 -3 -1.55874 -2.683901 -2.12132 -2.12132 
+C -2.683901 -1.55874 -3 -0.795609 -3 0 
+C -3 0.795609 -2.683901 1.55874 -2.12132 2.12132 
+C -1.55874 2.683901 -0.795609 3 0 3 
+z
+" style="stroke: #ff7f0e"/>
+    </defs>
+    <g clip-path="url(#appendix-e-svg1-p575a8ddf33)">
+     <use xlink:href="#appendix-e-svg1-m0817eabd83" x="94.208182" y="198.592536" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg1-m0817eabd83" x="188.949091" y="198.314638" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg1-m0817eabd83" x="283.69" y="197.758842" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg1-m0817eabd83" x="378.430909" y="196.925149" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg1-m0817eabd83" x="473.171818" y="195.813558" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+    </g>
+   </g>
+   <g id="appendix-e-svg1-patch_3">
+    <path d="M 75.26 207.52 
+L 75.26 11.88 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="appendix-e-svg1-patch_4">
+    <path d="M 75.26 207.52 
+L 492.12 207.52 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="appendix-e-svg1-legend_1">
+    <g id="appendix-e-svg1-patch_5">
+     <path d="M 82.96 52.971875 
+L 173.706563 52.971875 
+Q 175.906563 52.971875 175.906563 50.771875 
+L 175.906563 19.58 
+Q 175.906563 17.38 173.706563 17.38 
+L 82.96 17.38 
+Q 80.76 17.38 80.76 19.58 
+L 80.76 50.771875 
+Q 80.76 52.971875 82.96 52.971875 
+z
+" style="fill: #fffdf9; opacity: 0.8; stroke: #cccccc; stroke-linejoin: miter"/>
+    </g>
+    <g id="appendix-e-svg1-line2d_35">
+     <path d="M 85.16 26.288281 
+L 96.16 26.288281 
+L 107.16 26.288281 
+" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+     <g>
+      <use xlink:href="#appendix-e-svg1-mf120987c75" x="96.16" y="26.288281" style="fill: #1f77b4; stroke: #1f77b4"/>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-text_19">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="115.96" y="30.138281" transform="rotate(-0 115.96 30.138281)">Standard</text>
+    </g>
+    <g id="appendix-e-svg1-line2d_36">
+     <path d="M 85.16 42.434219 
+L 96.16 42.434219 
+L 107.16 42.434219 
+" style="fill: none; stroke: #ff7f0e; stroke-width: 1.5; stroke-linecap: square"/>
+     <g>
+      <use xlink:href="#appendix-e-svg1-m0817eabd83" x="96.16" y="42.434219" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     </g>
+    </g>
+    <g id="appendix-e-svg1-text_20">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="115.96" y="46.284219" transform="rotate(-0 115.96 46.284219)">Separable</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="appendix-e-svg1-p575a8ddf33">
+   <rect x="75.26" y="11.88" width="416.86" height="195.64"/>
+  </clipPath>
+ </defs>
+</svg>
+<figcaption>図E.1　通常畳み込みと分離畳み込みの重み数（理論値）</figcaption></figure><div class="code-head"><span>コードE.1　畳み込みのパラメータ比較</span><button data-copy="code1" type="button">コピー</button></div><pre><code id="code1">import numpy as np
+ci, co, k = 32, 64, 3
+standard = k*k*ci*co
+separable = k*k*ci + ci*co
+print(standard, separable, standard/separable)
+assert standard == 18432 and separable == 2336
+</code></pre><h2 id="s3">E.3　表形式データとMLP</h2><p>表形式では列の順序に空間的な意味がないことが多く、CNNを無条件に使う理由はない。カテゴリのEmbeddingは未知カテゴリ用IDを用意し、語彙を訓練Foldで確定する。<a href="chapter29.html">第29章</a>参照。</p><div class="table-wrap"><table><thead><tr><th>モデル</th><th>強み</th><th>弱み</th><th>選定条件</th></tr></thead><tbody><tr><td>線形・ロジスティック回帰</td><td>高速・説明容易</td><td>非線形は特徴設計が必要</td><td>初期基準</td></tr><tr><td>GBDT</td><td>非線形・相互作用に強い</td><td>高次元の密な表現は不得手な場合</td><td>中小規模表データ</td></tr><tr><td>MLP</td><td>柔軟な関数近似</td><td>標準化・正則化が重要</td><td>連続特徴・大規模データ</td></tr><tr><td>Embedding付きMLP</td><td>高基数カテゴリを密表現</td><td>未知カテゴリ・希少カテゴリ</td><td>カテゴリと数値の混合</td></tr><tr><td>Tabular Transformer</td><td>特徴間相互作用を学習</td><td>計算・調整コスト</td><td>十分なデータと予算</td></tr></tbody></table></div><h2 id="s4">E.4　CNNと画像バックボーン</h2><p>画像モデルは局所性と重み共有を利用する。分類用バックボーンとタスク固有ヘッドを区別する。<a href="chapter25.html">第25章</a>・<a href="chapter30.html">第30章</a>参照。</p><div class="table-wrap"><table><thead><tr><th>モデル</th><th>設計の核</th><th>長所</th><th>制約</th></tr></thead><tbody><tr><td>LeNet</td><td>小型Conv＋Pooling</td><td>教育用・軽量</td><td>複雑な大画像には不足</td></tr><tr><td>AlexNet</td><td>深いCNN・ReLU</td><td>歴史的基準</td><td>大きな全結合部</td></tr><tr><td>VGG</td><td>3×3畳み込みの反復</td><td>構造が単純</td><td>大きな重み・計算</td></tr><tr><td>GoogLeNet</td><td>Inception</td><td>複数受容野</td><td>分岐構造</td></tr><tr><td>ResNet</td><td>残差接続</td><td>深層化しやすい</td><td>幅・解像度で負荷増</td></tr><tr><td>DenseNet</td><td>特徴連結</td><td>特徴再利用</td><td>活性化メモリ</td></tr><tr><td>MobileNetV2</td><td>分離畳み込み・逆残差</td><td>端末向け候補</td><td>実機の演算最適化依存</td></tr><tr><td>EfficientNet</td><td>複合スケーリング</td><td>精度と予算の調整</td><td>入力解像度・派生型に依存</td></tr><tr><td>ConvNeXt</td><td>現代化CNN</td><td>強力な画像特徴</td><td>大型型は高負荷</td></tr><tr><td>ViT</td><td>パッチ＋Self-Attention</td><td>大域的関係</td><td>事前学習・トークン数の影響</td></tr></tbody></table></div><h2 id="s5">E.5　系列モデル：RNN・LSTM・GRU・TCN</h2><p>系列長とオンライン性を重視する。双方向モデルは入力窓全体が利用可能な分類や予測に適するが、予測起点より後の観測値を入力に含めてはならない。<a href="chapter26.html">第26章</a>・<a href="chapter33.html">第33章</a>参照。</p><div class="table-wrap"><table><thead><tr><th>モデル</th><th>状態・受容野</th><th>利点</th><th>制約</th></tr></thead><tbody><tr><td>SimpleRNN</td><td>隠れ状態</td><td>小型</td><td>長期依存・逐次計算</td></tr><tr><td>LSTM</td><td>セル状態＋ゲート</td><td>長期依存を扱いやすい</td><td>ゲート計算・逐次性</td></tr><tr><td>GRU</td><td>隠れ状態＋ゲート</td><td>LSTMより少ない重み（同幅）</td><td>最良精度とは限らない</td></tr><tr><td>BiRNN</td><td>両方向の状態</td><td>文脈を両側から利用</td><td>各出力時点より後の入力も利用する</td></tr><tr><td>TCN</td><td>因果・膨張畳み込み</td><td>時刻並列・受容野設計</td><td>受容野外の情報なし</td></tr></tbody></table></div><figure><svg style="width:100%;height:auto" role="img" aria-label="同じ幅64での層単体の理論MAC比較（FFNなし、実測速度ではない）"  xmlns:xlink="http://www.w3.org/1999/xlink" width="504pt" height="252pt" viewBox="0 0 504 252" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-11-26T00:16:37.123953</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="appendix-e-svg2-figure_1">
+  <g id="appendix-e-svg2-patch_1">
+   <path d="M 0 252 
+L 504 252 
+L 504 0 
+L 0 0 
+z
+" style="fill: #fffdf9"/>
+  </g>
+  <g id="appendix-e-svg2-axes_1">
+   <g id="appendix-e-svg2-patch_2">
+    <path d="M 53.615021 204.856 
+L 492.12 204.856 
+L 492.12 11.88 
+L 53.615021 11.88 
+z
+" style="fill: #fffdf9"/>
+   </g>
+   <g id="appendix-e-svg2-matplotlib.axis_1">
+    <g id="appendix-e-svg2-xtick_1">
+     <g id="appendix-e-svg2-line2d_1">
+      <path d="M 182.765115 204.856 
+L 182.765115 11.88 
+" clip-path="url(#appendix-e-svg2-p29bb9878ee)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg2-line2d_2">
+      <defs>
+       <path id="appendix-e-svg2-m82bf433a56" d="M 0 0 
+L 0 3.5 
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#appendix-e-svg2-m82bf433a56" x="182.765115" y="204.856" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg2-text_1">
+      <!-- $\mathdefault{10^{2}}$ -->
+      <g transform="translate(173.085115 220.214281)">
+       <text>
+        <tspan x="0" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.279688" style="font-size: 7.7px; font-family: 'DejaVu Sans'">2</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_2">
+     <g id="appendix-e-svg2-line2d_3">
+      <path d="M 403.47451 204.856 
+L 403.47451 11.88 
+" clip-path="url(#appendix-e-svg2-p29bb9878ee)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg2-line2d_4">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m82bf433a56" x="403.47451" y="204.856" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg2-text_2">
+      <!-- $\mathdefault{10^{3}}$ -->
+      <g transform="translate(393.79451 220.214281)">
+       <text>
+        <tspan x="0" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.279688" style="font-size: 7.7px; font-family: 'DejaVu Sans'">3</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_3">
+     <g id="appendix-e-svg2-line2d_5">
+      <defs>
+       <path id="appendix-e-svg2-mfc9d80db53" d="M 0 0 
+L 0 2 
+" style="stroke: #000000; stroke-width: 0.6"/>
+      </defs>
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="67.360863" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_4">
+     <g id="appendix-e-svg2-line2d_6">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="94.936016" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_5">
+     <g id="appendix-e-svg2-line2d_7">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="116.324966" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_6">
+     <g id="appendix-e-svg2-line2d_8">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="133.801011" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_7">
+     <g id="appendix-e-svg2-line2d_9">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="148.576797" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_8">
+     <g id="appendix-e-svg2-line2d_10">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="161.376164" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_9">
+     <g id="appendix-e-svg2-line2d_11">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="172.666007" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_10">
+     <g id="appendix-e-svg2-line2d_12">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="249.205263" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_11">
+     <g id="appendix-e-svg2-line2d_13">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="288.070258" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_12">
+     <g id="appendix-e-svg2-line2d_14">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="315.645411" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_13">
+     <g id="appendix-e-svg2-line2d_15">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="337.034362" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_14">
+     <g id="appendix-e-svg2-line2d_16">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="354.510407" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_15">
+     <g id="appendix-e-svg2-line2d_17">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="369.286192" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_16">
+     <g id="appendix-e-svg2-line2d_18">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="382.08556" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_17">
+     <g id="appendix-e-svg2-line2d_19">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="393.375402" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-xtick_18">
+     <g id="appendix-e-svg2-line2d_20">
+      <g>
+       <use xlink:href="#appendix-e-svg2-mfc9d80db53" x="469.914658" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-text_3">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="272.867511" y="234.860219" transform="rotate(-0 272.867511 234.860219)">Sequence length</text>
+    </g>
+   </g>
+   <g id="appendix-e-svg2-matplotlib.axis_2">
+    <g id="appendix-e-svg2-ytick_1">
+     <g id="appendix-e-svg2-line2d_21">
+      <path d="M 53.615021 165.521885 
+L 492.12 165.521885 
+" clip-path="url(#appendix-e-svg2-p29bb9878ee)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg2-line2d_22">
+      <defs>
+       <path id="appendix-e-svg2-m2a13c68e07" d="M 0 0 
+L -3.5 0 
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#appendix-e-svg2-m2a13c68e07" x="53.615021" y="165.521885" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg2-text_4">
+      <!-- $\mathdefault{10^{6}}$ -->
+      <g transform="translate(27.255021 169.701026)">
+       <text>
+        <tspan x="0" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.279688" style="font-size: 7.7px; font-family: 'DejaVu Sans'">6</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_2">
+     <g id="appendix-e-svg2-line2d_23">
+      <path d="M 53.615021 112.960275 
+L 492.12 112.960275 
+" clip-path="url(#appendix-e-svg2-p29bb9878ee)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg2-line2d_24">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m2a13c68e07" x="53.615021" y="112.960275" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg2-text_5">
+      <!-- $\mathdefault{10^{7}}$ -->
+      <g transform="translate(27.255021 117.139415)">
+       <text>
+        <tspan x="0" y="-0.178125" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.178125" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.389063" style="font-size: 7.7px; font-family: 'DejaVu Sans'">7</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_3">
+     <g id="appendix-e-svg2-line2d_25">
+      <path d="M 53.615021 60.398664 
+L 492.12 60.398664 
+" clip-path="url(#appendix-e-svg2-p29bb9878ee)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg2-line2d_26">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m2a13c68e07" x="53.615021" y="60.398664" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg2-text_6">
+      <!-- $\mathdefault{10^{8}}$ -->
+      <g transform="translate(27.255021 64.577805)">
+       <text>
+        <tspan x="0" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.279688" style="font-size: 7.7px; font-family: 'DejaVu Sans'">8</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_4">
+     <g id="appendix-e-svg2-line2d_27">
+      <defs>
+       <path id="appendix-e-svg2-m380cd13c65" d="M 0 0 
+L -2 0 
+" style="stroke: #000000; stroke-width: 0.6"/>
+      </defs>
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="202.260875" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_5">
+     <g id="appendix-e-svg2-line2d_28">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="193.005234" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_6">
+     <g id="appendix-e-svg2-line2d_29">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="186.438253" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_7">
+     <g id="appendix-e-svg2-line2d_30">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="181.344507" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_8">
+     <g id="appendix-e-svg2-line2d_31">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="177.182613" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_9">
+     <g id="appendix-e-svg2-line2d_32">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="173.663782" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_10">
+     <g id="appendix-e-svg2-line2d_33">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="170.615632" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_11">
+     <g id="appendix-e-svg2-line2d_34">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="167.926973" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_12">
+     <g id="appendix-e-svg2-line2d_35">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="149.699264" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_13">
+     <g id="appendix-e-svg2-line2d_36">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="140.443624" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_14">
+     <g id="appendix-e-svg2-line2d_37">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="133.876642" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_15">
+     <g id="appendix-e-svg2-line2d_38">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="128.782896" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_16">
+     <g id="appendix-e-svg2-line2d_39">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="124.621002" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_17">
+     <g id="appendix-e-svg2-line2d_40">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="121.102171" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_18">
+     <g id="appendix-e-svg2-line2d_41">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="118.054021" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_19">
+     <g id="appendix-e-svg2-line2d_42">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="115.365362" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_20">
+     <g id="appendix-e-svg2-line2d_43">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="97.137653" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_21">
+     <g id="appendix-e-svg2-line2d_44">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="87.882013" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_22">
+     <g id="appendix-e-svg2-line2d_45">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="81.315032" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_23">
+     <g id="appendix-e-svg2-line2d_46">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="76.221285" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_24">
+     <g id="appendix-e-svg2-line2d_47">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="72.059392" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_25">
+     <g id="appendix-e-svg2-line2d_48">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="68.54056" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_26">
+     <g id="appendix-e-svg2-line2d_49">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="65.49241" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_27">
+     <g id="appendix-e-svg2-line2d_50">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="62.803751" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_28">
+     <g id="appendix-e-svg2-line2d_51">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="44.576043" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_29">
+     <g id="appendix-e-svg2-line2d_52">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="35.320402" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_30">
+     <g id="appendix-e-svg2-line2d_53">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="28.753421" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_31">
+     <g id="appendix-e-svg2-line2d_54">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="23.659675" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_32">
+     <g id="appendix-e-svg2-line2d_55">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="19.497781" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_33">
+     <g id="appendix-e-svg2-line2d_56">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="15.97895" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-ytick_34">
+     <g id="appendix-e-svg2-line2d_57">
+      <g>
+       <use xlink:href="#appendix-e-svg2-m380cd13c65" x="53.615021" y="12.9308" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-text_7">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="20.967365" y="108.368" transform="rotate(-90 20.967365 108.368)">MAC (approx.)</text>
+    </g>
+   </g>
+   <g id="appendix-e-svg2-line2d_58">
+    <path d="M 73.547066 196.084364 
+L 139.987214 180.261742 
+L 206.427362 164.439121 
+L 272.867511 148.616499 
+L 339.307659 132.793878 
+L 405.747807 116.971256 
+L 472.187956 101.148635 
+" clip-path="url(#appendix-e-svg2-p29bb9878ee)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+    <defs>
+     <path id="appendix-e-svg2-m05f9b13e23" d="M 0 3 
+C 0.795609 3 1.55874 2.683901 2.12132 2.12132 
+C 2.683901 1.55874 3 0.795609 3 0 
+C 3 -0.795609 2.683901 -1.55874 2.12132 -2.12132 
+C 1.55874 -2.683901 0.795609 -3 0 -3 
+C -0.795609 -3 -1.55874 -2.683901 -2.12132 -2.12132 
+C -2.683901 -1.55874 -3 -0.795609 -3 0 
+C -3 0.795609 -2.683901 1.55874 -2.12132 2.12132 
+C -1.55874 2.683901 -0.795609 3 0 3 
+z
+" style="stroke: #1f77b4"/>
+    </defs>
+    <g clip-path="url(#appendix-e-svg2-p29bb9878ee)">
+     <use xlink:href="#appendix-e-svg2-m05f9b13e23" x="73.547066" y="196.084364" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg2-m05f9b13e23" x="139.987214" y="180.261742" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg2-m05f9b13e23" x="206.427362" y="164.439121" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg2-m05f9b13e23" x="272.867511" y="148.616499" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg2-m05f9b13e23" x="339.307659" y="132.793878" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg2-m05f9b13e23" x="405.747807" y="116.971256" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg2-m05f9b13e23" x="472.187956" y="101.148635" style="fill: #1f77b4; stroke: #1f77b4"/>
+    </g>
+   </g>
+   <g id="appendix-e-svg2-line2d_59">
+    <path d="M 73.547066 164.439121 
+L 139.987214 148.616499 
+L 206.427362 132.793878 
+L 272.867511 116.971256 
+L 339.307659 101.148635 
+L 405.747807 85.326014 
+L 472.187956 69.503392 
+" clip-path="url(#appendix-e-svg2-p29bb9878ee)" style="fill: none; stroke: #ff7f0e; stroke-width: 1.5; stroke-linecap: square"/>
+    <defs>
+     <path id="appendix-e-svg2-md9223eb199" d="M 0 3 
+C 0.795609 3 1.55874 2.683901 2.12132 2.12132 
+C 2.683901 1.55874 3 0.795609 3 0 
+C 3 -0.795609 2.683901 -1.55874 2.12132 -2.12132 
+C 1.55874 -2.683901 0.795609 -3 0 -3 
+C -0.795609 -3 -1.55874 -2.683901 -2.12132 -2.12132 
+C -2.683901 -1.55874 -3 -0.795609 -3 0 
+C -3 0.795609 -2.683901 1.55874 -2.12132 2.12132 
+C -1.55874 2.683901 -0.795609 3 0 3 
+z
+" style="stroke: #ff7f0e"/>
+    </defs>
+    <g clip-path="url(#appendix-e-svg2-p29bb9878ee)">
+     <use xlink:href="#appendix-e-svg2-md9223eb199" x="73.547066" y="164.439121" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg2-md9223eb199" x="139.987214" y="148.616499" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg2-md9223eb199" x="206.427362" y="132.793878" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg2-md9223eb199" x="272.867511" y="116.971256" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg2-md9223eb199" x="339.307659" y="101.148635" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg2-md9223eb199" x="405.747807" y="85.326014" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg2-md9223eb199" x="472.187956" y="69.503392" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+    </g>
+   </g>
+   <g id="appendix-e-svg2-line2d_60">
+    <path d="M 73.547066 175.167996 
+L 139.987214 155.183481 
+L 206.427362 132.793878 
+L 272.867511 107.715616 
+L 339.307659 80.232267 
+L 405.747807 50.992112 
+L 472.187956 20.651636 
+" clip-path="url(#appendix-e-svg2-p29bb9878ee)" style="fill: none; stroke: #2ca02c; stroke-width: 1.5; stroke-linecap: square"/>
+    <defs>
+     <path id="appendix-e-svg2-mf88c8b340e" d="M 0 3 
+C 0.795609 3 1.55874 2.683901 2.12132 2.12132 
+C 2.683901 1.55874 3 0.795609 3 0 
+C 3 -0.795609 2.683901 -1.55874 2.12132 -2.12132 
+C 1.55874 -2.683901 0.795609 -3 0 -3 
+C -0.795609 -3 -1.55874 -2.683901 -2.12132 -2.12132 
+C -2.683901 -1.55874 -3 -0.795609 -3 0 
+C -3 0.795609 -2.683901 1.55874 -2.12132 2.12132 
+C -1.55874 2.683901 -0.795609 3 0 3 
+z
+" style="stroke: #2ca02c"/>
+    </defs>
+    <g clip-path="url(#appendix-e-svg2-p29bb9878ee)">
+     <use xlink:href="#appendix-e-svg2-mf88c8b340e" x="73.547066" y="175.167996" style="fill: #2ca02c; stroke: #2ca02c"/>
+     <use xlink:href="#appendix-e-svg2-mf88c8b340e" x="139.987214" y="155.183481" style="fill: #2ca02c; stroke: #2ca02c"/>
+     <use xlink:href="#appendix-e-svg2-mf88c8b340e" x="206.427362" y="132.793878" style="fill: #2ca02c; stroke: #2ca02c"/>
+     <use xlink:href="#appendix-e-svg2-mf88c8b340e" x="272.867511" y="107.715616" style="fill: #2ca02c; stroke: #2ca02c"/>
+     <use xlink:href="#appendix-e-svg2-mf88c8b340e" x="339.307659" y="80.232267" style="fill: #2ca02c; stroke: #2ca02c"/>
+     <use xlink:href="#appendix-e-svg2-mf88c8b340e" x="405.747807" y="50.992112" style="fill: #2ca02c; stroke: #2ca02c"/>
+     <use xlink:href="#appendix-e-svg2-mf88c8b340e" x="472.187956" y="20.651636" style="fill: #2ca02c; stroke: #2ca02c"/>
+    </g>
+   </g>
+   <g id="appendix-e-svg2-patch_3">
+    <path d="M 53.615021 204.856 
+L 53.615021 11.88 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="appendix-e-svg2-patch_4">
+    <path d="M 53.615021 204.856 
+L 492.12 204.856 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="appendix-e-svg2-legend_1">
+    <g id="appendix-e-svg2-patch_5">
+     <path d="M 61.315021 69.117813 
+L 170.734084 69.117813 
+Q 172.934084 69.117813 172.934084 66.917813 
+L 172.934084 19.58 
+Q 172.934084 17.38 170.734084 17.38 
+L 61.315021 17.38 
+Q 59.115021 17.38 59.115021 19.58 
+L 59.115021 66.917813 
+Q 59.115021 69.117813 61.315021 69.117813 
+z
+" style="fill: #fffdf9; opacity: 0.8; stroke: #cccccc; stroke-linejoin: miter"/>
+    </g>
+    <g id="appendix-e-svg2-line2d_61">
+     <path d="M 63.515021 26.288281 
+L 74.515021 26.288281 
+L 85.515021 26.288281 
+" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+     <g>
+      <use xlink:href="#appendix-e-svg2-m05f9b13e23" x="74.515021" y="26.288281" style="fill: #1f77b4; stroke: #1f77b4"/>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-text_8">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="94.315021" y="30.138281" transform="rotate(-0 94.315021 30.138281)">SimpleRNN</text>
+    </g>
+    <g id="appendix-e-svg2-line2d_62">
+     <path d="M 63.515021 42.434219 
+L 74.515021 42.434219 
+L 85.515021 42.434219 
+" style="fill: none; stroke: #ff7f0e; stroke-width: 1.5; stroke-linecap: square"/>
+     <g>
+      <use xlink:href="#appendix-e-svg2-md9223eb199" x="74.515021" y="42.434219" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-text_9">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="94.315021" y="46.284219" transform="rotate(-0 94.315021 46.284219)">LSTM</text>
+    </g>
+    <g id="appendix-e-svg2-line2d_63">
+     <path d="M 63.515021 58.580156 
+L 74.515021 58.580156 
+L 85.515021 58.580156 
+" style="fill: none; stroke: #2ca02c; stroke-width: 1.5; stroke-linecap: square"/>
+     <g>
+      <use xlink:href="#appendix-e-svg2-mf88c8b340e" x="74.515021" y="58.580156" style="fill: #2ca02c; stroke: #2ca02c"/>
+     </g>
+    </g>
+    <g id="appendix-e-svg2-text_10">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="94.315021" y="62.430156" transform="rotate(-0 94.315021 62.430156)">Self-attention</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="appendix-e-svg2-p29bb9878ee">
+   <rect x="53.615021" y="11.88" width="438.504979" height="192.976"/>
+  </clipPath>
+ </defs>
+</svg>
+<figcaption>図E.2　同じ幅64での層単体の理論MAC比較（FFNなし、実測速度ではない）</figcaption></figure><div class="code-head"><span>コードE.2　系列演算のMAC概算</span><button data-copy="code2" type="button">コピー</button></div><pre><code id="code2">import numpy as np
+T, d, h = 256, 64, 64
+for name, mac in [(&#x27;RNN&#x27;, T*h*(d+h)), (&#x27;LSTM&#x27;, 4*T*h*(d+h)),
+                  (&#x27;GRU&#x27;, 3*T*h*(d+h)), (&#x27;Attention&#x27;, 4*T*d*d+2*T*T*d)]:
+    print(name, mac)
+</code></pre><h2 id="s6">E.6　Attention・Transformer</h2><p>TransformerはAttentionと位置情報、FFN、残差・正規化から成る。密なSelf-Attentionのスコア行列はヘッドごとに $T\times T$。FlashAttentionなどは中間行列の実体化を避けるが、通常の密Attentionの演算量そのものを線形にはしない。<a href="chapter27.html">第27章</a>参照。</p><div class="table-wrap"><table><thead><tr><th>構造</th><th>適用</th><th>注意</th></tr></thead><tbody><tr><td>Encoder-only（BERT等）</td><td>分類・系列ラベリング</td><td>双方向文脈、パディングマスク</td></tr><tr><td>Encoder-decoder</td><td>入力系列から出力系列</td><td>Cross-Attention、出力側因果マスク</td></tr><tr><td>Decoder-only</td><td>自己回帰的系列予測</td><td>因果マスク、逐次推論</td></tr><tr><td>ViT</td><td>画像分類</td><td>パッチサイズと系列長</td></tr><tr><td>局所Attention</td><td>長系列</td><td>窓外の情報伝播を設計</td></tr></tbody></table></div><figure><svg style="width:100%;height:auto" role="img" aria-label="バッチ1のAttentionスコアを実体化した場合の理論メモリ（他のテンソルを除く）"  xmlns:xlink="http://www.w3.org/1999/xlink" width="504pt" height="252pt" viewBox="0 0 504 252" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-11-26T00:16:37.385458</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="appendix-e-svg3-figure_1">
+  <g id="appendix-e-svg3-patch_1">
+   <path d="M 0 252 
+L 504 252 
+L 504 0 
+L 0 0 
+z
+" style="fill: #fffdf9"/>
+  </g>
+  <g id="appendix-e-svg3-axes_1">
+   <g id="appendix-e-svg3-patch_2">
+    <path d="M 59.762548 204.856 
+L 492.12 204.856 
+L 492.12 11.88 
+L 59.762548 11.88 
+z
+" style="fill: #fffdf9"/>
+   </g>
+   <g id="appendix-e-svg3-matplotlib.axis_1">
+    <g id="appendix-e-svg3-xtick_1">
+     <g id="appendix-e-svg3-line2d_1">
+      <path d="M 187.10205 204.856 
+L 187.10205 11.88 
+" clip-path="url(#appendix-e-svg3-pbf62942770)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg3-line2d_2">
+      <defs>
+       <path id="appendix-e-svg3-m940053b374" d="M 0 0 
+L 0 3.5 
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#appendix-e-svg3-m940053b374" x="187.10205" y="204.856" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg3-text_1">
+      <!-- $\mathdefault{10^{2}}$ -->
+      <g transform="translate(177.42205 220.214281)">
+       <text>
+        <tspan x="0" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.279688" style="font-size: 7.7px; font-family: 'DejaVu Sans'">2</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_2">
+     <g id="appendix-e-svg3-line2d_3">
+      <path d="M 404.717257 204.856 
+L 404.717257 11.88 
+" clip-path="url(#appendix-e-svg3-pbf62942770)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg3-line2d_4">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m940053b374" x="404.717257" y="204.856" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg3-text_2">
+      <!-- $\mathdefault{10^{3}}$ -->
+      <g transform="translate(395.037257 220.214281)">
+       <text>
+        <tspan x="0" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.279688" style="font-size: 7.7px; font-family: 'DejaVu Sans'">3</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_3">
+     <g id="appendix-e-svg3-line2d_5">
+      <defs>
+       <path id="appendix-e-svg3-md4a2c409e1" d="M 0 0 
+L 0 2 
+" style="stroke: #000000; stroke-width: 0.6"/>
+      </defs>
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="73.315683" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_4">
+     <g id="appendix-e-svg3-line2d_6">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="100.504252" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_5">
+     <g id="appendix-e-svg3-line2d_7">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="121.593345" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_6">
+     <g id="appendix-e-svg3-line2d_8">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="138.824388" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_7">
+     <g id="appendix-e-svg3-line2d_9">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="153.393028" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_8">
+     <g id="appendix-e-svg3-line2d_10">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="166.012957" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_9">
+     <g id="appendix-e-svg3-line2d_11">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="177.144524" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_10">
+     <g id="appendix-e-svg3-line2d_12">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="252.610754" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_11">
+     <g id="appendix-e-svg3-line2d_13">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="290.93089" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_12">
+     <g id="appendix-e-svg3-line2d_14">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="318.119459" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_13">
+     <g id="appendix-e-svg3-line2d_15">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="339.208552" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_14">
+     <g id="appendix-e-svg3-line2d_16">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="356.439595" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_15">
+     <g id="appendix-e-svg3-line2d_17">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="371.008235" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_16">
+     <g id="appendix-e-svg3-line2d_18">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="383.628164" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_17">
+     <g id="appendix-e-svg3-line2d_19">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="394.759731" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-xtick_18">
+     <g id="appendix-e-svg3-line2d_20">
+      <g>
+       <use xlink:href="#appendix-e-svg3-md4a2c409e1" x="470.225961" y="204.856" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-text_3">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="275.941274" y="234.860219" transform="rotate(-0 275.941274 234.860219)">Tokens</text>
+    </g>
+   </g>
+   <g id="appendix-e-svg3-matplotlib.axis_2">
+    <g id="appendix-e-svg3-ytick_1">
+     <g id="appendix-e-svg3-line2d_21">
+      <path d="M 59.762548 204.77309 
+L 492.12 204.77309 
+" clip-path="url(#appendix-e-svg3-pbf62942770)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg3-line2d_22">
+      <defs>
+       <path id="appendix-e-svg3-m95286fc0f8" d="M 0 0 
+L -3.5 0 
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#appendix-e-svg3-m95286fc0f8" x="59.762548" y="204.77309" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg3-text_4">
+      <!-- $\mathdefault{10^{-2}}$ -->
+      <g transform="translate(26.912548 208.952231)">
+       <text>
+        <tspan x="0" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.279688" style="font-size: 7.7px; font-family: 'DejaVu Sans'">−</tspan>
+        <tspan x="20.554102" y="-4.279688" style="font-size: 7.7px; font-family: 'DejaVu Sans'">2</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_2">
+     <g id="appendix-e-svg3-line2d_23">
+      <path d="M 59.762548 159.944251 
+L 492.12 159.944251 
+" clip-path="url(#appendix-e-svg3-pbf62942770)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg3-line2d_24">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m95286fc0f8" x="59.762548" y="159.944251" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg3-text_5">
+      <!-- $\mathdefault{10^{-1}}$ -->
+      <g transform="translate(26.912548 164.123392)">
+       <text>
+        <tspan x="0" y="-0.178125" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.178125" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.389063" style="font-size: 7.7px; font-family: 'DejaVu Sans'">−</tspan>
+        <tspan x="20.554102" y="-4.389063" style="font-size: 7.7px; font-family: 'DejaVu Sans'">1</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_3">
+     <g id="appendix-e-svg3-line2d_25">
+      <path d="M 59.762548 115.115413 
+L 492.12 115.115413 
+" clip-path="url(#appendix-e-svg3-pbf62942770)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg3-line2d_26">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m95286fc0f8" x="59.762548" y="115.115413" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg3-text_6">
+      <!-- $\mathdefault{10^{0}}$ -->
+      <g transform="translate(33.402548 119.294553)">
+       <text>
+        <tspan x="0" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.279688" style="font-size: 7.7px; font-family: 'DejaVu Sans'">0</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_4">
+     <g id="appendix-e-svg3-line2d_27">
+      <path d="M 59.762548 70.286574 
+L 492.12 70.286574 
+" clip-path="url(#appendix-e-svg3-pbf62942770)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg3-line2d_28">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m95286fc0f8" x="59.762548" y="70.286574" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg3-text_7">
+      <!-- $\mathdefault{10^{1}}$ -->
+      <g transform="translate(33.402548 74.465714)">
+       <text>
+        <tspan x="0" y="-0.178125" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.178125" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.389063" style="font-size: 7.7px; font-family: 'DejaVu Sans'">1</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_5">
+     <g id="appendix-e-svg3-line2d_29">
+      <path d="M 59.762548 25.457735 
+L 492.12 25.457735 
+" clip-path="url(#appendix-e-svg3-pbf62942770)" style="fill: none; stroke: #b0b0b0; stroke-opacity: 0.2; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="appendix-e-svg3-line2d_30">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m95286fc0f8" x="59.762548" y="25.457735" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="appendix-e-svg3-text_8">
+      <!-- $\mathdefault{10^{2}}$ -->
+      <g transform="translate(33.402548 29.636875)">
+       <text>
+        <tspan x="0" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">1</tspan>
+        <tspan x="6.998535" y="-0.06875" style="font-size: 11px; font-family: 'DejaVu Sans'">0</tspan>
+        <tspan x="14.102344" y="-4.279688" style="font-size: 7.7px; font-family: 'DejaVu Sans'">2</tspan>
+       </text>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_6">
+     <g id="appendix-e-svg3-line2d_31">
+      <defs>
+       <path id="appendix-e-svg3-m5146aaacf3" d="M 0 0 
+L -2 0 
+" style="stroke: #000000; stroke-width: 0.6"/>
+      </defs>
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="191.278265" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_7">
+     <g id="appendix-e-svg3-line2d_32">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="183.384298" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_8">
+     <g id="appendix-e-svg3-line2d_33">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="177.78344" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_9">
+     <g id="appendix-e-svg3-line2d_34">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="173.439077" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_10">
+     <g id="appendix-e-svg3-line2d_35">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="169.889473" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_11">
+     <g id="appendix-e-svg3-line2d_36">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="166.888326" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_12">
+     <g id="appendix-e-svg3-line2d_37">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="164.288615" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_13">
+     <g id="appendix-e-svg3-line2d_38">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="161.995507" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_14">
+     <g id="appendix-e-svg3-line2d_39">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="146.449426" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_15">
+     <g id="appendix-e-svg3-line2d_40">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="138.55546" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_16">
+     <g id="appendix-e-svg3-line2d_41">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="132.954601" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_17">
+     <g id="appendix-e-svg3-line2d_42">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="128.610238" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_18">
+     <g id="appendix-e-svg3-line2d_43">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="125.060634" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_19">
+     <g id="appendix-e-svg3-line2d_44">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="122.059488" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_20">
+     <g id="appendix-e-svg3-line2d_45">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="119.459776" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_21">
+     <g id="appendix-e-svg3-line2d_46">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="117.166668" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_22">
+     <g id="appendix-e-svg3-line2d_47">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="101.620587" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_23">
+     <g id="appendix-e-svg3-line2d_48">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="93.726621" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_24">
+     <g id="appendix-e-svg3-line2d_49">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="88.125762" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_25">
+     <g id="appendix-e-svg3-line2d_50">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="83.781399" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_26">
+     <g id="appendix-e-svg3-line2d_51">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="80.231796" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_27">
+     <g id="appendix-e-svg3-line2d_52">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="77.230649" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_28">
+     <g id="appendix-e-svg3-line2d_53">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="74.630937" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_29">
+     <g id="appendix-e-svg3-line2d_54">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="72.337829" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_30">
+     <g id="appendix-e-svg3-line2d_55">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="56.791749" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_31">
+     <g id="appendix-e-svg3-line2d_56">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="48.897782" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_32">
+     <g id="appendix-e-svg3-line2d_57">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="43.296923" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_33">
+     <g id="appendix-e-svg3-line2d_58">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="38.95256" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_34">
+     <g id="appendix-e-svg3-line2d_59">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="35.402957" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_35">
+     <g id="appendix-e-svg3-line2d_60">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="32.40181" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_36">
+     <g id="appendix-e-svg3-line2d_61">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="29.802098" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_37">
+     <g id="appendix-e-svg3-line2d_62">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="27.50899" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-ytick_38">
+     <g id="appendix-e-svg3-line2d_63">
+      <g>
+       <use xlink:href="#appendix-e-svg3-m5146aaacf3" x="59.762548" y="11.96291" style="stroke: #000000; stroke-width: 0.6"/>
+      </g>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-text_9">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="20.624892" y="108.368" transform="rotate(-90 20.624892 108.368)">Score tensor (MiB)</text>
+    </g>
+   </g>
+   <g id="appendix-e-svg3-line2d_64">
+    <path d="M 79.41516 182.589538 
+L 144.923865 155.599888 
+L 210.432569 128.610238 
+L 275.941274 101.620587 
+L 341.449979 74.630937 
+L 406.958684 47.641287 
+L 472.467389 20.651636 
+" clip-path="url(#appendix-e-svg3-pbf62942770)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+    <defs>
+     <path id="appendix-e-svg3-mbf51b27cfc" d="M 0 3 
+C 0.795609 3 1.55874 2.683901 2.12132 2.12132 
+C 2.683901 1.55874 3 0.795609 3 0 
+C 3 -0.795609 2.683901 -1.55874 2.12132 -2.12132 
+C 1.55874 -2.683901 0.795609 -3 0 -3 
+C -0.795609 -3 -1.55874 -2.683901 -2.12132 -2.12132 
+C -2.683901 -1.55874 -3 -0.795609 -3 0 
+C -3 0.795609 -2.683901 1.55874 -2.12132 2.12132 
+C -1.55874 2.683901 -0.795609 3 0 3 
+z
+" style="stroke: #1f77b4"/>
+    </defs>
+    <g clip-path="url(#appendix-e-svg3-pbf62942770)">
+     <use xlink:href="#appendix-e-svg3-mbf51b27cfc" x="79.41516" y="182.589538" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg3-mbf51b27cfc" x="144.923865" y="155.599888" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg3-mbf51b27cfc" x="210.432569" y="128.610238" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg3-mbf51b27cfc" x="275.941274" y="101.620587" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg3-mbf51b27cfc" x="341.449979" y="74.630937" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg3-mbf51b27cfc" x="406.958684" y="47.641287" style="fill: #1f77b4; stroke: #1f77b4"/>
+     <use xlink:href="#appendix-e-svg3-mbf51b27cfc" x="472.467389" y="20.651636" style="fill: #1f77b4; stroke: #1f77b4"/>
+    </g>
+   </g>
+   <g id="appendix-e-svg3-line2d_65">
+    <path d="M 79.41516 196.084364 
+L 144.923865 169.094713 
+L 210.432569 142.105063 
+L 275.941274 115.115413 
+L 341.449979 88.125762 
+L 406.958684 61.136112 
+L 472.467389 34.146462 
+" clip-path="url(#appendix-e-svg3-pbf62942770)" style="fill: none; stroke: #ff7f0e; stroke-width: 1.5; stroke-linecap: square"/>
+    <defs>
+     <path id="appendix-e-svg3-m742cb4669d" d="M 0 3 
+C 0.795609 3 1.55874 2.683901 2.12132 2.12132 
+C 2.683901 1.55874 3 0.795609 3 0 
+C 3 -0.795609 2.683901 -1.55874 2.12132 -2.12132 
+C 1.55874 -2.683901 0.795609 -3 0 -3 
+C -0.795609 -3 -1.55874 -2.683901 -2.12132 -2.12132 
+C -2.683901 -1.55874 -3 -0.795609 -3 0 
+C -3 0.795609 -2.683901 1.55874 -2.12132 2.12132 
+C -1.55874 2.683901 -0.795609 3 0 3 
+z
+" style="stroke: #ff7f0e"/>
+    </defs>
+    <g clip-path="url(#appendix-e-svg3-pbf62942770)">
+     <use xlink:href="#appendix-e-svg3-m742cb4669d" x="79.41516" y="196.084364" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg3-m742cb4669d" x="144.923865" y="169.094713" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg3-m742cb4669d" x="210.432569" y="142.105063" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg3-m742cb4669d" x="275.941274" y="115.115413" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg3-m742cb4669d" x="341.449979" y="88.125762" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg3-m742cb4669d" x="406.958684" y="61.136112" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     <use xlink:href="#appendix-e-svg3-m742cb4669d" x="472.467389" y="34.146462" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+    </g>
+   </g>
+   <g id="appendix-e-svg3-patch_3">
+    <path d="M 59.762548 204.856 
+L 59.762548 11.88 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="appendix-e-svg3-patch_4">
+    <path d="M 59.762548 204.856 
+L 492.12 204.856 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="appendix-e-svg3-legend_1">
+    <g id="appendix-e-svg3-patch_5">
+     <path d="M 67.462548 52.971875 
+L 180.300205 52.971875 
+Q 182.500205 52.971875 182.500205 50.771875 
+L 182.500205 19.58 
+Q 182.500205 17.38 180.300205 17.38 
+L 67.462548 17.38 
+Q 65.262548 17.38 65.262548 19.58 
+L 65.262548 50.771875 
+Q 65.262548 52.971875 67.462548 52.971875 
+z
+" style="fill: #fffdf9; opacity: 0.8; stroke: #cccccc; stroke-linejoin: miter"/>
+    </g>
+    <g id="appendix-e-svg3-line2d_66">
+     <path d="M 69.662548 26.288281 
+L 80.662548 26.288281 
+L 91.662548 26.288281 
+" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+     <g>
+      <use xlink:href="#appendix-e-svg3-mbf51b27cfc" x="80.662548" y="26.288281" style="fill: #1f77b4; stroke: #1f77b4"/>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-text_10">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="100.462548" y="30.138281" transform="rotate(-0 100.462548 30.138281)">8 heads, FP32</text>
+    </g>
+    <g id="appendix-e-svg3-line2d_67">
+     <path d="M 69.662548 42.434219 
+L 80.662548 42.434219 
+L 91.662548 42.434219 
+" style="fill: none; stroke: #ff7f0e; stroke-width: 1.5; stroke-linecap: square"/>
+     <g>
+      <use xlink:href="#appendix-e-svg3-m742cb4669d" x="80.662548" y="42.434219" style="fill: #ff7f0e; stroke: #ff7f0e"/>
+     </g>
+    </g>
+    <g id="appendix-e-svg3-text_11">
+     <text style="font-size: 11px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="100.462548" y="46.284219" transform="rotate(-0 100.462548 46.284219)">8 heads, FP16</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="appendix-e-svg3-pbf62942770">
+   <rect x="59.762548" y="11.88" width="432.357452" height="192.976"/>
+  </clipPath>
+ </defs>
+</svg>
+<figcaption>図E.3　バッチ1のAttentionスコアを実体化した場合の理論メモリ（他のテンソルを除く）</figcaption></figure><h2 id="s7">E.7　Autoencoderと表現学習</h2><p>基本的なAutoencoderの目的は入力の再構成であり、分類性能を直接最大化するものではない。再構成誤差の閾値は正常な検証データなどで設定する。<a href="chapter28.html">第28章</a>参照。</p><div class="table-wrap"><table><thead><tr><th>モデル</th><th>学習目的</th><th>利点</th><th>注意</th></tr></thead><tbody><tr><td>PCA</td><td>線形射影の再構成</td><td>高速・比較基準</td><td>非線形構造</td></tr><tr><td>Undercomplete AE</td><td>低次元から再構成</td><td>非線形表現</td><td>恒等写像・過学習</td></tr><tr><td>Denoising AE</td><td>汚染入力から原入力</td><td>頑健性</td><td>ノイズ分布</td></tr><tr><td>Sparse AE</td><td>再構成＋疎性</td><td>選択的特徴</td><td>疎性強度</td></tr><tr><td>VAE</td><td>再構成＋KL</td><td>確率的潜在表現</td><td>再構成と分布制約のトレードオフ</td></tr></tbody></table></div><h2 id="s8">E.8　検出・領域予測モデル</h2><p>検出は個々の物体の位置とクラス、semantic segmentationは画素クラス、instance segmentationは物体ごとのマスクを予測する。<a href="chapter31.html">第31章</a>参照。</p><div class="table-wrap"><table><thead><tr><th>モデル</th><th>出力</th><th>長所</th><th>注意</th></tr></thead><tbody><tr><td>YOLO系</td><td>箱・クラス</td><td>一段検出・実時間候補</td><td>解像度・実装差</td></tr><tr><td>Faster R-CNN</td><td>候補領域→箱・クラス</td><td>二段構成</td><td>候補処理の負荷</td></tr><tr><td>DETR</td><td>集合としての箱・クラス</td><td>集合予測</td><td>学習条件・派生型の差</td></tr><tr><td>U-Net</td><td>画素クラス</td><td>スキップ接続で詳細復元</td><td>高解像度メモリ</td></tr><tr><td>DeepLab</td><td>画素クラス</td><td>膨張畳み込み等で文脈取得</td><td>境界精度</td></tr><tr><td>Mask R-CNN</td><td>物体ごとのマスク</td><td>検出と領域予測</td><td>注釈・計算コスト</td></tr></tbody></table></div><h2 id="s9">E.9　推薦・グラフ・マルチモーダル</h2><p>推薦では未観測を必ずしも負例と見なせない。グラフでは分割をまたぐ辺の利用が許される設定か確認する。複数モダリティでは欠損と対応ずれを扱う。<a href="chapter34.html">第34章</a>参照。</p><div class="table-wrap"><table><thead><tr><th>モデル</th><th>入力</th><th>強み</th><th>注意</th></tr></thead><tbody><tr><td>行列分解</td><td>ユーザー×アイテム</td><td>簡潔な協調表現</td><td>cold start</td></tr><tr><td>Two-tower</td><td>ユーザーとアイテム特徴</td><td>候補検索の事前計算</td><td>細かな相互作用は弱い</td></tr><tr><td>GCN</td><td>ノード・辺・属性</td><td>近傍集約</td><td>過平滑化・大規模グラフ</td></tr><tr><td>GAT</td><td>ノード・辺・属性</td><td>近傍の重み付け</td><td>辺数に応じた負荷</td></tr><tr><td>音声CNN</td><td>スペクトログラム</td><td>局所パターン</td><td>時間分割・話者リーク</td></tr><tr><td>Early fusion</td><td>結合特徴</td><td>簡単</td><td>尺度・欠損</td></tr><tr><td>Late fusion</td><td>各モデルの出力</td><td>独立学習可能</td><td>細かな相互作用</td></tr><tr><td>Cross-Attention</td><td>異種トークン</td><td>対応関係を学習</td><td>計算量・同期</td></tr></tbody></table></div><h2 id="s10">E.10　転移学習と実装上の比較</h2><p>Keras Applicationsのバックボーンは入力の前処理が異なる。例えばResNet50は専用前処理、MobileNetV2は通常−1〜1への変換、ConvNeXtとEfficientNetB0は標準設定で前処理を含み、通常は0〜255の画素値を入力する。事前学習重みの有無・入力サイズ・分類ヘッドの有無を記録する。<a href="chapter35.html">第35章</a>参照。</p><div class="code-head"><span>コードE.3　バックボーンのサイズ比較（未実行）</span><button data-copy="code3" type="button">コピー</button></div><pre><code id="code3">import tensorflow as tf
+k = tf.keras
+for factory in [k.applications.ResNet50, k.applications.MobileNetV2,
+                k.applications.EfficientNetB0]:
+    model = factory(weights=None, include_top=False, input_shape=(224,224,3), pooling=&#x27;avg&#x27;)
+    print(model.name, model.count_params(), model.output_shape)
+    k.backend.clear_session()
+# weights=None なのでダウンロード不要。精度比較ではない。
+</code></pre><div class="code-head"><span>コードE.4　系列モデルの形状・重み数（未実行）</span><button data-copy="code4" type="button">コピー</button></div><pre><code id="code4">import tensorflow as tf
+k = tf.keras
+for layer in [k.layers.SimpleRNN(64), k.layers.LSTM(64), k.layers.GRU(64)]:
+    x = k.Input((128,32))
+    m = k.Model(x, layer(x))
+    print(layer.name, m.count_params(), m.output_shape)
+</code></pre><h2 id="s11">E.11　公平な比較実験と選定チェックリスト</h2><p>同じ分割、前処理の適合範囲、評価指標、探索予算を固定する。前処理方式自体は各モデルの入力契約に合わせる。精度だけでなく学習時間、推論の中央値・95パーセンタイル、最大メモリ、モデル保存容量を記録する。バッチサイズ、端末、精度型、ウォームアップを明記する。モデル選択には検証集合、最終報告には独立テストを使う。</p><div class="code-head"><span>コードE.5　同一Foldでの比較（手書き数字を平坦化した教育例）</span><button data-copy="code5" type="button">コピー</button></div><pre><code id="code5">from sklearn.datasets import load_digits
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.neural_network import MLPClassifier
+X,y = load_digits(return_X_y=True)
+cv = list(StratifiedKFold(3, shuffle=True, random_state=42).split(X,y))
+models = {&#x27;Linear&#x27;: make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000)),
+          &#x27;GBDT&#x27;: HistGradientBoostingClassifier(max_iter=50, random_state=42),
+          &#x27;MLP&#x27;: make_pipeline(StandardScaler(), MLPClassifier(hidden_layer_sizes=(32,), solver=&#x27;lbfgs&#x27;, max_iter=1000, random_state=42))}
+for name, model in models.items():
+    s = cross_val_score(model,X,y,cv=cv,scoring=&#x27;accuracy&#x27;)
+    print(name, s.mean(), s.std())
+</code></pre><p>この比較は固定設定であり、探索予算やモデルの最適精度を比較する実験ではない。画像の空間構造を利用するCNNは含めていない。</p><h3>選定チェックリスト</h3><ul><li>入力の構造を利用する帰納バイアスがあるか。</li><li>単純なベースラインを超えるか。</li><li>データリークを防いだ分割か。</li><li>事前学習・外部データが規約上許可されているか。</li><li>精度の改善幅に対して計算費用が妥当か。</li><li>推論環境で実測したか。</li></ul><h3>公式資料</h3><p><a href="https://keras.io/api/applications/">Keras Applications</a> ／ <a href="https://keras.io/api/layers/">Keras Layers</a> ／ <a href="https://keras.io/api/layers/attention_layers/multi_head_attention/">MultiHeadAttention</a>。図は理論式からの計算であり実測速度ではない。TensorFlow例は構文確認のみ。</p><nav aria-label="章送り" class="chap-nav"><a href="appendix-d.html"><span class="dir">◀ 前の付録</span><span class="ttl">付録D　活性化関数・損失関数・評価指標一覧</span></a><a href="appendix-f.html"><span class="dir">次の付録 ▶</span><span class="ttl">付録F　エラー・トラブルシューティング</span></a></nav><div class="toc-back"><a href="#">付録の先頭へ戻る</a>　<a href="index.html">全体目次へ</a></div></main><script>document.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);b.textContent="コピー済み";}catch(e){b.textContent="選択してコピーしてください";}}));</script></body></html>

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>付録B NumPy・pandasリファレンス｜深層学習の基礎と実践</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&amp;family=Shippori+Mincho:wght@500;600;700&amp;family=Zen+Kaku+Gothic+Antique:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="style.css" rel="stylesheet"/><script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async="" src="https://cdn.jsdelivr.net/npm/mathjax@3.2.1/es5/tex-svg-full.js"></script></head><body><div class="topbar"><div class="inner"><a class="book" href="index.html">深層学習の基礎と実践</a><span>付録B</span></div></div><main class="page"><header class="chapter-head"><p class="eyebrow">Appendix B</p><h1>付録B　NumPy・pandasリファレンス</h1><p class="lead">配列・表データの頻出操作を、形状と実行例から確認する</p></header><p>本編で使う操作の実践リファレンス。各コードは独立して実行できる。NumPyは軸と形状、pandasはラベルと結合キーを意識する。</p><nav class="section-toc"><b>付録の目次</b><ol><li><a href="#s1">B.1 配列の生成・属性・型</a></li><li><a href="#s2">B.2 添字・抽出・コピー</a></li><li><a href="#s3">B.3 形状変換・結合・軸操作</a></li><li><a href="#s4">B.4 ブロードキャスト・要素演算</a></li><li><a href="#s5">B.5 集約・統計・数値安定性</a></li><li><a href="#s6">B.6 行列演算・乱数・バッチ処理</a></li><li><a href="#s7">B.7 pandasの基本・入出力・抽出</a></li><li><a href="#s8">B.8 欠損値・型変換・カテゴリ処理</a></li><li><a href="#s9">B.9 集約・結合・整形</a></li><li><a href="#s10">B.10 日時・時系列特徴量</a></li><li><a href="#s11">B.11 学習用データと提出ファイルの検査</a></li></ol></nav><hr><h2 id="s1">B.1 配列の生成・属性・型</h2><p>参照章：<a href="chapter02.html">第2章</a>・<a href="chapter03.html">第3章</a>・<a href="chapter12.html">第12章</a></p><p>ndarrayは同じdtypeの要素を持つ多次元配列である。形状と型を最初に確認する。</p><div class="table-wrap"><table><thead><tr><th>操作</th><th>用途・注意点</th></tr></thead><tbody><tr><td><code>np.array / asarray</code></td><td>リスト等から配列化。asarrayはコピーを省く場合がある</td></tr><tr><td><code>zeros / ones / full / empty</code></td><td>初期化。emptyの値は未初期化</td></tr><tr><td><code>arange / linspace</code></td><td>刻み幅指定／点数指定。浮動小数の刻みにはlinspaceが便利</td></tr><tr><td><code>shape / ndim / size / dtype / nbytes</code></td><td>形状・軸数・要素数・型・要素バッファのバイト数</td></tr><tr><td><code>astype / np.iinfo / np.finfo</code></td><td>型変換と表現範囲。整数のオーバーフローに注意</td></tr></tbody></table></div><div class="code-head"><span>コードB.1　実行例</span><button data-copy="code1" type="button">コピー</button></div><pre><code id="code1">import numpy as np
+x = np.arange(12, dtype=np.float32).reshape(3, 4)
+print(x.shape, x.ndim, x.size, x.dtype, x.nbytes)
+assert x.nbytes == 48
+print(np.linspace(0, 1, 5))
+</code></pre><details><summary>実行結果</summary><pre>(3, 4) 2 12 float32 48
+[0.   0.25 0.5  0.75 1.  ]
+</pre></details><blockquote><b>実装時の注意</b><p>学習入力はfloat32を基本とし、数値微分など精度が必要な処理ではfloat64を検討する。ラベルの整数型はモデルの損失関数に合わせる。</p></blockquote><h2 id="s2">B.2 添字・抽出・コピー</h2><p>参照章：<a href="chapter03.html">第3章</a>・<a href="chapter12.html">第12章</a>・<a href="chapter16.html">第16章</a></p><p>基本スライスで得られる配列はビュー、整数配列・真偽値配列による高度な添字はコピーを返す。</p><div class="table-wrap"><table><thead><tr><th>操作</th><th>用途・注意点</th></tr></thead><tbody><tr><td><code>x[i, j] / x[:, j]</code></td><td>要素／列。整数添字で軸が消える</td></tr><tr><td><code>x[1:3] / x[..., 0]</code></td><td>範囲／末尾軸の抽出</td></tr><tr><td><code>x[mask] / np.where</code></td><td>条件抽出／条件による値の選択</td></tr><tr><td><code>np.take_along_axis</code></td><td>各行などで異なる位置の値を取得</td></tr><tr><td><code>copy / shares_memory</code></td><td>明示コピー／メモリ共有の確認</td></tr><tr><td><code>np.ix_</code></td><td>行・列の直積を抽出</td></tr></tbody></table></div><div class="code-head"><span>コードB.2　実行例</span><button data-copy="code2" type="button">コピー</button></div><pre><code id="code2">import numpy as np
+x = np.arange(12).reshape(3, 4)
+v = x[:, 1:3]
+c = x[:, [1, 2]]
+assert np.shares_memory(x, v)
+assert not np.shares_memory(x, c)
+print(x[x % 2 == 0])
+print(x[np.ix_([0, 2], [1, 3])])
+</code></pre><details><summary>実行結果</summary><pre>[ 0  2  4  6  8 10]
+[[ 1  3]
+ [ 9 11]]
+</pre></details><blockquote><b>実装時の注意</b><p>x[[0,0]] += 1 は同じ位置への加算を二回保証しない。重複添字の累積にはnp.add.atを使う。</p></blockquote><h2 id="s3">B.3 形状変換・結合・軸操作</h2><p>参照章：<a href="chapter03.html">第3章</a>・<a href="chapter13.html">第13章</a>・<a href="chapter24.html">第24章</a>・<a href="chapter27.html">第27章</a></p><p>reshapeは要素数を保つ。メモリ配置によってビューまたはコピーになる。transposeは軸を並べ替える。両者は交換できない。</p><div class="table-wrap"><table><thead><tr><th>操作</th><th>用途・注意点</th></tr></thead><tbody><tr><td><code>reshape / ravel / flatten</code></td><td>形状変更／一次元化（flattenはコピー）</td></tr><tr><td><code>transpose / moveaxis / swapaxes</code></td><td>軸の並べ替え</td></tr><tr><td><code>expand_dims / squeeze</code></td><td>長さ1の軸の追加／除去</td></tr><tr><td><code>concatenate / stack</code></td><td>既存軸に連結／新しい軸を作る</td></tr><tr><td><code>split / array_split</code></td><td>整数で分割数を指定する場合、splitは等分割、array_splitは不均等分割も可能</td></tr><tr><td><code>repeat / tile</code></td><td>要素の反復／配列全体の反復</td></tr></tbody></table></div><figure><svg viewBox="0 0 720 112" role="img" aria-label="軸変換" style="width:100%;height:auto"><rect x="10" y="25" width="210" height="62" rx="8" fill="#e4edf3"/><rect x="260" y="25" width="200" height="62" rx="8" fill="#f3e7d7"/><rect x="500" y="25" width="210" height="62" rx="8" fill="#e0eee8"/><g fill="#263e50" font-size="17" text-anchor="middle"><text x="115" y="62">(N,H,W,C)</text><text x="360" y="62">transpose(0,3,1,2)</text><text x="605" y="62">(N,C,H,W)</text><text x="240" y="62">→</text><text x="480" y="62">→</text></g></svg><figcaption>図B.1　軸変換の模式図</figcaption></figure><div class="code-head"><span>コードB.3　実行例</span><button data-copy="code3" type="button">コピー</button></div><pre><code id="code3">import numpy as np
+x = np.zeros((8, 28, 28, 3))
+y = x.transpose(0, 3, 1, 2)
+assert y.shape == (8, 3, 28, 28)
+a = np.ones((2, 3))
+assert np.concatenate([a, a], axis=0).shape == (4, 3)
+assert np.stack([a, a], axis=0).shape == (2, 2, 3)
+</code></pre><details><summary>実行結果</summary><pre></pre></details><blockquote><b>実装時の注意</b><p>squeeze()はバッチサイズ1の軸まで消すことがある。axisを指定する。NHWCとNCHWの変換はtransposeで行う。</p></blockquote><h2 id="s4">B.4 ブロードキャスト・要素演算</h2><p>参照章：<a href="chapter03.html">第3章</a>・<a href="chapter08.html">第8章</a>・<a href="chapter12.html">第12章</a></p><p>末尾の軸から比較し、各次元が等しいか一方が1なら演算できる。存在しない先頭軸は1とみなす。</p><div class="table-wrap"><table><thead><tr><th>操作</th><th>用途・注意点</th></tr></thead><tbody><tr><td><code>+, -, *, /, **</code></td><td>要素ごとの演算</td></tr><tr><td><code>np.newaxis / None</code></td><td>長さ1の軸を追加</td></tr><tr><td><code>np.broadcast_to</code></td><td>指定形状にブロードキャストした読み取り専用ビュー</td></tr><tr><td><code>maximum / minimum / clip</code></td><td>要素ごとの最大・最小・範囲制限</td></tr><tr><td><code>exp / log / log1p / expm1</code></td><td>指数・対数。小さい値での桁落ち対策</td></tr><tr><td><code>isfinite / isnan / isinf</code></td><td>非有限値の検出</td></tr></tbody></table></div><figure><svg viewBox="0 0 720 112" role="img" aria-label="ブロードキャスト" style="width:100%;height:auto"><rect x="10" y="25" width="210" height="62" rx="8" fill="#e4edf3"/><rect x="260" y="25" width="200" height="62" rx="8" fill="#f3e7d7"/><rect x="500" y="25" width="210" height="62" rx="8" fill="#e0eee8"/><g fill="#263e50" font-size="17" text-anchor="middle"><text x="115" y="62">(3,4) + (4,)</text><text x="360" y="62">末尾軸を照合</text><text x="605" y="62">(3,4)</text><text x="240" y="62">→</text><text x="480" y="62">→</text></g></svg><figcaption>図B.2　ブロードキャストの模式図</figcaption></figure><div class="code-head"><span>コードB.4　実行例</span><button data-copy="code4" type="button">コピー</button></div><pre><code id="code4">import numpy as np
+x = np.arange(12).reshape(3, 4)
+b = np.array([10, 20, 30, 40])
+assert (x + b).shape == (3, 4)
+w = np.array([1, 2, 3])[:, None]
+assert (x * w).shape == (3, 4)
+print(x + b)
+</code></pre><details><summary>実行結果</summary><pre>[[10 21 32 43]
+ [14 25 36 47]
+ [18 29 40 51]]
+</pre></details><blockquote><b>実装時の注意</b><p>(N,1) と (N,) の差は (N,N) になる。回帰の予測値と正解値を同じ形状に揃えてから損失を計算する。</p></blockquote><h2 id="s5">B.5 集約・統計・数値安定性</h2><p>参照章：<a href="chapter05.html">第5章</a>・<a href="chapter09.html">第9章</a>・<a href="chapter10.html">第10章</a>・<a href="chapter19.html">第19章</a></p><p>axisは集約で消える軸を指定する。keepdims=Trueで長さ1の軸を残せば再利用しやすい。</p><div class="table-wrap"><table><thead><tr><th>操作</th><th>用途・注意点</th></tr></thead><tbody><tr><td><code>sum / mean / std / var</code></td><td>合計・平均・標準偏差・分散。ddofの既定値は0</td></tr><tr><td><code>min / max / argmin / argmax</code></td><td>極値とその位置</td></tr><tr><td><code>median / quantile / percentile</code></td><td>中央値・分位点（0〜1／0〜100）</td></tr><tr><td><code>nanmean / nanstd</code></td><td>NaNを除く集約。全欠損には注意</td></tr><tr><td><code>sort / argsort / argpartition</code></td><td>整列／順序添字／部分選択</td></tr><tr><td><code>cumsum / diff / unique</code></td><td>累積和・差分・ユニーク値</td></tr></tbody></table></div><div class="code-head"><span>コードB.5　実行例</span><button data-copy="code5" type="button">コピー</button></div><pre><code id="code5">import numpy as np
+x = np.array([[1000., 1001., 1002.], [3., 2., 1.]])
+z = x - x.max(axis=1, keepdims=True)
+p = np.exp(z) / np.exp(z).sum(axis=1, keepdims=True)
+assert np.allclose(p.sum(axis=1), 1)
+print(p)
+</code></pre><details><summary>実行結果</summary><pre>[[0.09003057 0.24472847 0.66524096]
+ [0.66524096 0.24472847 0.09003057]]
+</pre></details><blockquote><b>実装時の注意</b><p>softmaxでは最大値を引く。標準化の平均・分散は訓練データのみから推定する。</p></blockquote><h2 id="s6">B.6 行列演算・乱数・バッチ処理</h2><p>参照章：<a href="chapter03.html">第3章</a>・<a href="chapter12.html">第12章</a>・<a href="chapter18.html">第18章</a>・<a href="chapter27.html">第27章</a></p><p>@は行列積、*は要素積。バッチ付き行列積では末尾2軸が行列、前方がバッチ軸となる。</p><div class="table-wrap"><table><thead><tr><th>操作</th><th>用途・注意点</th></tr></thead><tbody><tr><td><code>matmul / @ / dot</code></td><td>行列積。dotは高次元でmatmulと異なり、一次元同士では内積になる</td></tr><tr><td><code>einsum</code></td><td>添字表記による縮約</td></tr><tr><td><code>linalg.solve / lstsq</code></td><td>連立方程式／最小二乗。逆行列の明示計算を避ける</td></tr><tr><td><code>linalg.norm / svd / eigh</code></td><td>ノルム・特異値分解・対称行列等の固有値分解</td></tr><tr><td><code>default_rng / normal / integers</code></td><td>乱数生成器・正規乱数・整数乱数</td></tr><tr><td><code>permutation / choice</code></td><td>順列・標本抽出</td></tr></tbody></table></div><div class="code-head"><span>コードB.6　実行例</span><button data-copy="code6" type="button">コピー</button></div><pre><code id="code6">import numpy as np
+rng = np.random.default_rng(42)
+x = rng.normal(size=(10, 4))
+w = rng.normal(size=(4, 3))
+assert np.allclose(x @ w, np.einsum(&#x27;ni,ij-&gt;nj&#x27;, x, w))
+y = np.arange(len(x))
+order = rng.permutation(len(x))
+for start in range(0, len(x), 4):
+    idx = order[start:start+4]
+    print(x[idx].shape, y[idx])
+</code></pre><details><summary>実行結果</summary><pre>(4, 4) [6 0 2 8]
+(4, 4) [3 4 1 5]
+(2, 4) [9 7]
+</pre></details><blockquote><b>実装時の注意</b><p>特徴量とラベルには同じ順列を適用する。シード固定だけではGPU等の完全再現を保証しない。</p></blockquote><h2 id="s7">B.7 pandasの基本・入出力・抽出</h2><p>参照章：<a href="chapter02.html">第2章</a>・<a href="chapter16.html">第16章</a>・<a href="chapter29.html">第29章</a>・<a href="chapter39.html">第39章</a></p><p>DataFrameは行・列にラベルを持つ。NumPyと異なり、演算時にラベルで整列する場合がある。</p><div class="table-wrap"><table><thead><tr><th>操作</th><th>用途・注意点</th></tr></thead><tbody><tr><td><code>read_csv / read_parquet / to_csv</code></td><td>読み込みと保存。CSV提出ではindex=False</td></tr><tr><td><code>head / info / describe / dtypes</code></td><td>データ概観・型・分布の確認</td></tr><tr><td><code>loc / iloc</code></td><td>ラベル指定／整数位置指定。locのラベル範囲は原則として終点を含む（ラベルの順序・重複に注意）</td></tr><tr><td><code>query / isin / between</code></td><td>条件抽出</td></tr><tr><td><code>rename / assign / drop</code></td><td>列名変更・列追加・削除</td></tr><tr><td><code>sort_values / reset_index</code></td><td>並べ替え・行ラベルの再設定</td></tr><tr><td><code>to_numpy</code></td><td>配列化。混合型ではobject等になることがある</td></tr></tbody></table></div><div class="code-head"><span>コードB.7　実行例</span><button data-copy="code7" type="button">コピー</button></div><pre><code id="code7">import pandas as pd
+from io import StringIO
+df = pd.read_csv(StringIO(&#x27;id,score,group\n10,80,A\n20,50,B\n30,90,A\n&#x27;))
+print(df.loc[df[&#x27;score&#x27;] &gt;= 80, [&#x27;id&#x27;, &#x27;score&#x27;]])
+df.loc[df[&#x27;score&#x27;] &lt; 60, &#x27;score&#x27;] = 60
+assert df.iloc[1][&#x27;score&#x27;] == 60
+print(df.to_csv(index=False))
+</code></pre><details><summary>実行結果</summary><pre>   id  score
+0  10     80
+2  30     90
+id,score,group
+10,80,A
+20,60,B
+30,90,A
+
+</pre></details><blockquote><b>実装時の注意</b><p>連鎖代入 df[mask][col] = value は避け、locで一度に代入する。pandasのバージョンによりコピーの挙動が異なる。Copy-on-Write有効時の連鎖代入は元のDataFrameを更新しない。</p></blockquote><h2 id="s8">B.8 欠損値・型変換・カテゴリ処理</h2><p>参照章：<a href="chapter16.html">第16章</a>・<a href="chapter29.html">第29章</a></p><p>欠損は0と同義ではない。欠損の発生理由を考え、訓練データから補完規則を作る。</p><div class="table-wrap"><table><thead><tr><th>操作</th><th>用途・注意点</th></tr></thead><tbody><tr><td><code>isna / notna / dropna</code></td><td>欠損検出・除去</td></tr><tr><td><code>fillna / ffill / bfill</code></td><td>指定値・直前値・直後値による補完</td></tr><tr><td><code>to_numeric / to_datetime</code></td><td>数値・日時変換。errors=&quot;coerce&quot;で不正値を欠損に</td></tr><tr><td><code>astype / convert_dtypes</code></td><td>型変換・nullable型への推定変換</td></tr><tr><td><code>get_dummies / Categorical</code></td><td>One-hot化・カテゴリ型</td></tr><tr><td><code>map / replace / str</code></td><td>値の変換・文字列処理</td></tr><tr><td><code>duplicated / drop_duplicates</code></td><td>重複検出・除去</td></tr></tbody></table></div><div class="code-head"><span>コードB.8　実行例</span><button data-copy="code8" type="button">コピー</button></div><pre><code id="code8">import pandas as pd
+train = pd.DataFrame({&#x27;age&#x27;:[20, None, 40], &#x27;city&#x27;:[&#x27;A&#x27;,&#x27;B&#x27;,&#x27;A&#x27;]})
+valid = pd.DataFrame({&#x27;age&#x27;:[None, 100], &#x27;city&#x27;:[&#x27;C&#x27;,&#x27;A&#x27;]})
+median = train[&#x27;age&#x27;].median()
+vocab = {c:i+1 for i,c in enumerate(train[&#x27;city&#x27;].dropna().unique())}
+def transform(df):
+    return pd.DataFrame({&#x27;age&#x27;:df[&#x27;age&#x27;].fillna(median),
+                         &#x27;city_id&#x27;:df[&#x27;city&#x27;].map(vocab).fillna(0).astype(&#x27;int32&#x27;)})
+print(transform(valid))
+assert transform(valid).iloc[0].tolist() == [30, 0]
+</code></pre><details><summary>実行結果</summary><pre>     age  city_id
+0   30.0        0
+1  100.0        1
+</pre></details><blockquote><b>実装時の注意</b><p>この例では未知カテゴリと欠損を同じ予約IDへ割り当てる。区別が必要なら別のIDを予約する。Embeddingではinput_dimを最大ID+1以上にする。時系列のbfillは未来情報を使う可能性がある。</p></blockquote><h2 id="s9">B.9 集約・結合・整形</h2><p>参照章：<a href="chapter16.html">第16章</a>・<a href="chapter29.html">第29章</a>・<a href="chapter40.html">第40章</a></p><p>groupbyは分割・処理・結合。aggはグループ単位、transformは原則として元の行に対応する結果を返す。</p><div class="table-wrap"><table><thead><tr><th>操作</th><th>用途・注意点</th></tr></thead><tbody><tr><td><code>groupby / agg / transform</code></td><td>グループ集約・行単位への展開</td></tr><tr><td><code>value_counts / nunique</code></td><td>頻度・異なる値の個数</td></tr><tr><td><code>merge / join</code></td><td>キー・インデックスで結合</td></tr><tr><td><code>concat</code></td><td>縦・横方向に結合</td></tr><tr><td><code>pivot / pivot_table</code></td><td>横持ち変換。pivot_tableは集約可能</td></tr><tr><td><code>melt / explode</code></td><td>縦持ち変換・リスト要素の行展開</td></tr><tr><td><code>rank / cut / qcut</code></td><td>順位・区間分割・分位点分割</td></tr></tbody></table></div><figure><svg viewBox="0 0 720 112" role="img" aria-label="集約と結合" style="width:100%;height:auto"><rect x="10" y="25" width="210" height="62" rx="8" fill="#e4edf3"/><rect x="260" y="25" width="200" height="62" rx="8" fill="#f3e7d7"/><rect x="500" y="25" width="210" height="62" rx="8" fill="#e0eee8"/><g fill="#263e50" font-size="17" text-anchor="middle"><text x="115" y="62">明細データ</text><text x="360" y="62">groupby → merge</text><text x="605" y="62">集約特徴付き明細</text><text x="240" y="62">→</text><text x="480" y="62">→</text></g></svg><figcaption>図B.3　集約と結合の模式図</figcaption></figure><div class="code-head"><span>コードB.9　実行例</span><button data-copy="code9" type="button">コピー</button></div><pre><code id="code9">import pandas as pd
+sales = pd.DataFrame({&#x27;id&#x27;:[1,2,3], &#x27;shop&#x27;:[&#x27;A&#x27;,&#x27;A&#x27;,&#x27;B&#x27;], &#x27;price&#x27;:[10,20,30]})
+summary = sales.groupby(&#x27;shop&#x27;, as_index=False).agg(avg=(&#x27;price&#x27;,&#x27;mean&#x27;), n=(&#x27;id&#x27;,&#x27;size&#x27;))
+result = sales.merge(summary, on=&#x27;shop&#x27;, how=&#x27;left&#x27;, validate=&#x27;many_to_one&#x27;)
+assert len(result) == len(sales)
+print(result)
+</code></pre><details><summary>実行結果</summary><pre>   id shop  price   avg  n
+0   1    A     10  15.0  2
+1   2    A     20  15.0  2
+2   3    B     30  30.0  1
+</pre></details><blockquote><b>実装時の注意</b><p>結合キーの重複で行数が増えることがある。validateとindicatorで検査する。pandasでは欠損キー同士も一致しうる。目的変数集約は訓練行自身の目的変数を参照しないOOF等で作り、検証・テストには訓練側で作った集計を適用する。時系列では未来の目的変数も参照しない。</p></blockquote><h2 id="s10">B.10 日時・時系列特徴量</h2><p>参照章：<a href="chapter22.html">第22章</a>・<a href="chapter33.html">第33章</a></p><p>予測時点より前の情報だけで特徴量を作る。グループごとの時間順に並べることが前提。同時刻に複数行がある場合は、利用可能時刻や集約規則を先に定義する。</p><div class="table-wrap"><table><thead><tr><th>操作</th><th>用途・注意点</th></tr></thead><tbody><tr><td><code>to_datetime / dt</code></td><td>日時変換・年月日や曜日の抽出</td></tr><tr><td><code>shift / diff / pct_change</code></td><td>ラグ・差分・変化率</td></tr><tr><td><code>rolling / expanding / ewm</code></td><td>移動窓・累積窓・指数加重</td></tr><tr><td><code>resample / asfreq</code></td><td>時間間隔の変更・集約</td></tr><tr><td><code>merge_asof</code></td><td>近い時刻で結合。結合時刻キーを昇順に並べ、directionとtoleranceを指定。未来情報を避ける場合は通常backwardを使う</td></tr><tr><td><code>date_range / Timedelta</code></td><td>日時列・時間差</td></tr></tbody></table></div><figure><svg viewBox="0 0 720 112" role="img" aria-label="予測時点" style="width:100%;height:auto"><rect x="10" y="25" width="210" height="62" rx="8" fill="#e4edf3"/><rect x="260" y="25" width="200" height="62" rx="8" fill="#f3e7d7"/><rect x="500" y="25" width="210" height="62" rx="8" fill="#e0eee8"/><g fill="#263e50" font-size="17" text-anchor="middle"><text x="115" y="62">過去 t−2, t−1</text><text x="360" y="62">shift → rolling</text><text x="605" y="62">時点 t の特徴</text><text x="240" y="62">→</text><text x="480" y="62">→</text></g></svg><figcaption>図B.4　予測時点の模式図</figcaption></figure><div class="code-head"><span>コードB.10　実行例</span><button data-copy="code10" type="button">コピー</button></div><pre><code id="code10">import pandas as pd
+df = pd.DataFrame({&#x27;shop&#x27;:[&#x27;A&#x27;]*4+[&#x27;B&#x27;]*4, &#x27;date&#x27;:list(pd.date_range(&#x27;2025-01-01&#x27;, periods=4))*2, &#x27;y&#x27;:[1,2,3,4,10,20,30,40]})
+df = df.sort_values([&#x27;shop&#x27;,&#x27;date&#x27;])
+df[&#x27;lag1&#x27;] = df.groupby(&#x27;shop&#x27;)[&#x27;y&#x27;].shift(1)
+df[&#x27;past_mean&#x27;] = df.groupby(&#x27;shop&#x27;)[&#x27;y&#x27;].transform(lambda s:s.shift(1).rolling(2).mean())
+assert df.loc[df[&#x27;shop&#x27;]==&#x27;B&#x27;,&#x27;lag1&#x27;].isna().sum() == 1
+print(df)
+</code></pre><details><summary>実行結果</summary><pre>  shop       date   y  lag1  past_mean
+0    A 2025-01-01   1   NaN        NaN
+1    A 2025-01-02   2   1.0        NaN
+2    A 2025-01-03   3   2.0        1.5
+3    A 2025-01-04   4   3.0        2.5
+4    B 2025-01-01  10   NaN        NaN
+5    B 2025-01-02  20  10.0        NaN
+6    B 2025-01-03  30  20.0       15.0
+7    B 2025-01-04  40  30.0       25.0
+</pre></details><blockquote><b>実装時の注意</b><p>rollingの前にshiftを適用し当日の目的変数を除く。複数ステップ先を一括予測する場合は予測起点以降の実測値も利用できない。</p></blockquote><h2 id="s11">B.11 学習用データと提出ファイルの検査</h2><p>参照章：<a href="chapter16.html">第16章</a>・<a href="chapter22.html">第22章</a>・<a href="chapter29.html">第29章</a>・<a href="chapter39.html">第39章</a>・<a href="chapter40.html">第40章</a></p><p>分割を先に決め、補完・標準化・カテゴリ辞書を訓練側でfitする。検証・テストは同じ規則でtransformする。</p><div class="table-wrap"><table><thead><tr><th>操作</th><th>用途・注意点</th></tr></thead><tbody><tr><td><code>reindex</code></td><td>列順や行順を明示的に揃える</td></tr><tr><td><code>select_dtypes</code></td><td>数値列などを抽出</td></tr><tr><td><code>memory_usage(deep=True)</code></td><td>メモリ使用量の概算</td></tr><tr><td><code>np.testing.assert_allclose</code></td><td>浮動小数の許容誤差付き検査</td></tr><tr><td><code>pd.testing.assert_frame_equal</code></td><td>表の値・型・ラベルの照合</td></tr><tr><td><code>assert / isfinite</code></td><td>形状・欠損・値域の検査</td></tr></tbody></table></div><div class="code-head"><span>コードB.11　実行例</span><button data-copy="code11" type="button">コピー</button></div><pre><code id="code11">import numpy as np
+import pandas as pd
+train = pd.DataFrame({&#x27;x&#x27;:[1.,2.,3.], &#x27;z&#x27;:[5.,5.,5.]})
+valid = pd.DataFrame({&#x27;z&#x27;:[5.], &#x27;x&#x27;:[4.]})
+mu = train.mean()
+sigma = train.std(ddof=0).replace(0, 1)
+X = ((valid.reindex(columns=train.columns)-mu)/sigma).to_numpy(dtype=np.float32)
+assert X.shape == (1,2) and np.isfinite(X).all()
+sample = pd.DataFrame({&#x27;id&#x27;:[3,1], &#x27;target&#x27;:[0.,0.]})
+pred = pd.DataFrame({&#x27;id&#x27;:[1,3], &#x27;target&#x27;:[0.2,0.8]})
+sub = sample[[&#x27;id&#x27;]].merge(pred, on=&#x27;id&#x27;, how=&#x27;left&#x27;, validate=&#x27;one_to_one&#x27;)
+assert sub[&#x27;id&#x27;].equals(sample[&#x27;id&#x27;]) and sub[&#x27;target&#x27;].notna().all()
+assert len(pred) == len(sample) and np.isfinite(sub[&#x27;target&#x27;]).all()
+assert sub[&#x27;target&#x27;].between(0, 1).all()  # この例は確率提出
+print(sub.to_csv(index=False))
+</code></pre><details><summary>実行結果</summary><pre>id,target
+3,0.8
+1,0.2
+
+</pre></details><blockquote><b>実装時の注意</b><p>提出列の名前・順番・行数・ID・値域はコンペごとの規約に従う。交差検証では前処理をFoldごとに作り直す。</p></blockquote><h2>公式リファレンス・検証環境</h2><p>実行例は NumPy 2.3.5、pandas 2.2.3 で検証した。新しい版では型推論やCopy-on-Writeなどの挙動が変化する場合がある。</p><p><a href="https://numpy.org/doc/stable/user/basics.html">NumPy fundamentals</a> ／ <a href="https://numpy.org/doc/stable/user/basics.copies.html">Copies and views</a> ／ <a href="https://numpy.org/doc/stable/user/basics.broadcasting.html">Broadcasting</a> ／ <a href="https://pandas.pydata.org/docs/user_guide/merging.html">pandas: Merge</a> ／ <a href="https://pandas.pydata.org/docs/user_guide/groupby.html">pandas: Group by</a></p><nav aria-label="章送り" class="chap-nav"><a href="appendix-a.html"><span class="dir">◀ 前の付録</span><span class="ttl">付録A　数学公式集</span></a><a href="appendix-c.html"><span class="dir">次の付録 ▶</span><span class="ttl">付録C　TensorFlow・Kerasリファレンス</span></a></nav><div class="toc-back"><a href="#">付録の先頭へ戻る</a>　<a href="index.html">全体目次へ</a></div></main><script>document.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);b.textContent="コピー済み";}catch(e){b.textContent="選択してコピーしてください";}}));</script></body></html>

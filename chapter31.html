@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+
+<html lang="ja"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>第31章 物体検出とセグメンテーション｜深層学習の基礎と実践</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&amp;family=Shippori+Mincho:wght@500;600;700&amp;family=Zen+Kaku+Gothic+Antique:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="style.css" rel="stylesheet"/><script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async="" src="https://cdn.jsdelivr.net/npm/mathjax@3.2.1/es5/tex-svg-full.js"></script></head><body><div class="topbar"><div class="inner"><a class="book" href="index.html">深層学習の基礎と実践</a><span>第31章</span></div></div><main class="page"><header class="chapter-head"><p class="eyebrow">Part VI / Chapter 31</p><h1>第31章　物体検出とセグメンテーション</h1><p class="lead">位置と領域を予測する深層学習</p></header><blockquote><b>この章の到達目標</b><ul><li>矩形・マスクの表現と変換を理解する。</li><li>IoU・NMS・APを理解する。</li><li>U-Netによる領域予測を実装する。</li></ul></blockquote><nav class="section-toc"><b>本章の目次</b><ol><li><a href="#s1">31.1 画像認識タスクの違い</a></li><li><a href="#s2">31.2 Bounding Boxと座標変換</a></li><li><a href="#s3">31.3 IoUと位置回帰の損失</a></li><li><a href="#s4">31.4 候補の割り当てと検出モデル</a></li><li><a href="#s5">31.5 Non-Maximum Suppression（NMS）</a></li><li><a href="#s6">31.6 検出の評価：APとmAP</a></li><li><a href="#s7">31.7 セグメンテーションのラベルと前処理</a></li><li><a href="#s8">31.8 U-NetとEncoder–Decoder構造</a></li><li><a href="#s9">31.9 画素単位の損失と評価指標</a></li><li><a href="#s10">31.10 推論・誤差分析と提出</a></li><li><a href="#s11">31.11 まとめと確認問題</a></li></ol></nav><hr/><h2 id="s1">31.1 画像認識タスクの違い</h2><p>第30章では画像全体に一つのラベルを付けた。本章では位置と領域を予測する。物体検出は物体ごとに矩形とクラスを返し、セマンティックセグメンテーションは画素ごとにクラスを返す。インスタンスセグメンテーションは同じクラスの別個体を区別する。パノプティックセグメンテーションは個体と背景領域を統合して扱う。</p><figure><svg aria-label="同じ画像に対する異なる出力" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 165" xmlns="http://www.w3.org/2000/svg"><g transform="translate(12,20)"><rect fill="#e4edf4" height="105" width="140"></rect><circle cx="42" cy="43" fill="#777" r="23"></circle><circle cx="98" cy="65" fill="#777" r="24"></circle><text text-anchor="middle" x="70" y="129">分類</text></g><g transform="translate(167,20)"><rect fill="#e4edf4" height="105" width="140"></rect><circle cx="42" cy="43" fill="#777" r="23"></circle><circle cx="98" cy="65" fill="#777" r="24"></circle><g fill="none" stroke="#b47845" stroke-width="2"><rect height="46" width="46" x="19" y="20"></rect><rect height="48" width="48" x="74" y="41"></rect></g><text text-anchor="middle" x="70" y="129">物体検出</text></g><g transform="translate(322,20)"><rect fill="#e4edf4" height="105" width="140"></rect><circle cx="42" cy="43" fill="#397b70" r="23"></circle><circle cx="98" cy="65" fill="#397b70" r="24"></circle><text text-anchor="middle" x="70" y="129">意味領域</text></g><g transform="translate(477,20)"><rect fill="#e4edf4" height="105" width="140"></rect><circle cx="42" cy="43" fill="#397b70" r="23"></circle><circle cx="98" cy="65" fill="#b47845" r="24"></circle><text text-anchor="middle" x="70" y="129">個体領域</text></g></svg><figcaption>図31.1　同じ画像に対する異なる出力</figcaption></figure><div class="table-wrap"><table><tr><th>タスク</th><th>出力形状の例</th><th>用途</th></tr><tr><td>分類</td><td>(B,K)</td><td>画像カテゴリ</td></tr><tr><td>検出</td><td>画像ごとに可変個数の矩形</td><td>部品検査</td></tr><tr><td>意味領域</td><td>(B,H,W,K)</td><td>道路・背景</td></tr><tr><td>個体領域</td><td>個体ごとのマスク</td><td>個体数・面積</td></tr></table></div><h2 id="s2">31.2 Bounding Boxと座標変換</h2><p>本章では矩形を $(x_1,y_1,x_2,y_2)$ とし、左上と右下を表す。原点は左上、xは右、yは下へ増加する。連続座標または半開区間を採用するため幅は $x_2-x_1$ であり、+1は不要である。COCO形式は左上と幅・高さ、YOLO形式のラベルは通常画像幅・高さで正規化した中心座標と幅・高さを使う。</p>$$c_x=(x_1+x_2)/2,\quad c_y=(y_1+y_2)/2,\quad w=x_2-x_1,\quad h=y_2-y_1$$<p>入力をリサイズする際は画像と矩形に同じ変換を施す。letterboxで余白を入れる場合は $x'=sx+p_x$ のように平行移動も記録する。推論時は逆変換を施して元画像の座標に戻す。左右反転なら $(x'_1,x'_2)=(W-x_2,W-x_1)$ となる。変換後は範囲外をクリップし、面積0の矩形を除く。</p><figure><svg aria-label="矩形の座標と中心" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 225" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="180" width="420" x="70" y="20"></rect><rect fill="#dcebe5" height="100" stroke="#397b70" stroke-width="2" width="220" x="160" y="60"></rect><circle cx="270" cy="110" fill="#b47845" r="4"></circle><text x="170" y="54">(x1,y1)</text><text x="385" y="165">(x2,y2)</text><text x="280" y="105">(cx,cy)</text><path d="M160 180 H380 M140 60 V160" stroke="#263e4c"></path><text x="270" y="196">w</text><text x="125" y="115">h</text></svg><figcaption>図31.2　矩形の座標と中心</figcaption></figure><div class="code-head"><span>コード31.1　座標形式の変換</span><button data-copy="code1" type="button">コピー</button></div><pre><code id="code1">import numpy as np
+
+def xyxy_to_yolo(box, width, height):
+    x1,y1,x2,y2 = np.asarray(box, float)
+    return np.array([(x1+x2)/(2*width), (y1+y2)/(2*height),
+                     (x2-x1)/width, (y2-y1)/height])
+
+def yolo_to_xyxy(box, width, height):
+    x,y,w,h = np.asarray(box, float)
+    return np.array([(x-w/2)*width,(y-h/2)*height,
+                     (x+w/2)*width,(y+h/2)*height])
+b = [20,30,100,90]
+assert np.allclose(yolo_to_xyxy(xyxy_to_yolo(b,200,120),200,120),b)
+</code></pre><h2 id="s3">31.3 IoUと位置回帰の損失</h2><p>Intersection over Union（IoU）は予測領域Pと正解領域Gの重なりを測る。矩形でも画素マスクでも定義は同じである。ただし和集合が空の場合は定義できず、評価仕様で扱いを定める。コード31.2では0を返す。</p>$$\operatorname{IoU}(P,G)=\frac{|P\cap G|}{|P\cup G|}$$<p>例えば両方の面積が100、交差が60なら和集合は140、IoUは約0.429である。矩形の交差幅は $\max(0,\min(x_2^P,x_2^G)-\max(x_1^P,x_1^G))$。高さも同様に求める。IoUが0のとき通常のIoU損失は離れた矩形に有用な勾配を与えにくい。GIoUは両矩形を覆う最小矩形Cを利用する。</p>$$GIoU=IoU-\frac{|C|-|P\cup G|}{|C|},\qquad L=1-GIoU$$<p>DIoUは中心間距離、CIoUはさらに縦横比を考慮する。Smooth L1も座標回帰に使われる。分類損失と位置損失の重みはモデル設計に依存する。</p><figure><svg aria-label="交差と和集合" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 215" xmlns="http://www.w3.org/2000/svg"><rect fill="#93b5cc" fill-opacity=".75" height="130" width="180" x="120" y="25"></rect><rect fill="#d6ad86" fill-opacity=".75" height="130" width="180" x="230" y="65"></rect><rect fill="#397b70" height="90" width="70" x="230" y="65"></rect><text x="150" y="48">P</text><text x="365" y="185">G</text><text fill="white" text-anchor="middle" x="265" y="115">交差</text></svg><figcaption>図31.3　交差と和集合</figcaption></figure><div class="code-head"><span>コード31.2　IoUのNumPy実装</span><button data-copy="code2" type="button">コピー</button></div><pre><code id="code2">import numpy as np
+
+def iou(a,b):
+    a,b = np.asarray(a,float),np.asarray(b,float)
+    inter = np.maximum(0,np.minimum(a[2:],b[2:])-np.maximum(a[:2],b[:2])).prod()
+    area = lambda x: np.maximum(0,x[2:]-x[:2]).prod()
+    union = area(a)+area(b)-inter
+    return inter/union if union&gt;0 else 0.0
+assert np.isclose(iou([0,0,10,10],[4,0,14,10]),3/7)
+assert iou([0,0,1,1],[2,2,3,3]) == 0
+</code></pre><h2 id="s4">31.4 候補の割り当てと検出モデル</h2><p>検出器は複数の候補位置についてクラスと矩形を予測する。anchor-based方式では既定の矩形を基準に中心やサイズの差分を回帰する。anchor-free方式では特徴マップの位置から直接距離や中心を予測する。正例・負例の割り当てはIoUや中心位置、動的なマッチングなどを用いる。背景候補が多いため、Focal Lossは容易な例の寄与を抑える。</p>$$FL(p_t)=-\alpha_t(1-p_t)^\gamma\log p_t$$<p>ここでp_tは正解クラスに割り当てた確率（二値分類なら正例でp、負例で1−p）、α_tは非負のクラス重み、γ≥0は焦点化係数である。上式は0&lt;p_t&lt;1で定義し、端点は極限で扱う。γ=0かつα_t=1なら通常の交差エントロピーに戻る（付録D）。</p><p>Faster R-CNNはRegion Proposal Networkで候補を作り、領域ごとの特徴から分類・回帰する二段階方式である。SSDや多くのYOLO系は一段階方式で、特徴マップから直接候補を予測する。FPNは異なる解像度の特徴を組み合わせ、小物体と大物体の検出に対応する。DETRは物体クエリと集合予測を使い、一対一マッチングにより通常のNMSを不要にする設計を採る。YOLO系でも実装・世代ごとに割り当てや後処理は異なる。</p><figure><svg aria-label="二段階検出" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 115" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="48" rx="6" stroke="#7395ad" width="102.0" x="30.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="81.0" y="74">画像</text><path d="M132.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="48" rx="6" stroke="#7395ad" width="102.0" x="146.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="197.0" y="74">Backbone</text><path d="M248.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="48" rx="6" stroke="#7395ad" width="102.0" x="262.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="313.0" y="74">RPN</text><path d="M364.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="48" rx="6" stroke="#7395ad" width="102.0" x="378.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="429.0" y="74">RoI特徴</text><path d="M480.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="48" rx="6" stroke="#7395ad" width="102.0" x="494.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="545.0" y="74">分類・回帰</text></svg><figcaption>図31.4　二段階検出</figcaption></figure><figure><svg aria-label="一段階検出" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 115" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="48" rx="6" stroke="#7395ad" width="102.0" x="30.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="81.0" y="74">画像</text><path d="M132.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="48" rx="6" stroke="#7395ad" width="102.0" x="146.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="197.0" y="74">Backbone</text><path d="M248.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="48" rx="6" stroke="#7395ad" width="102.0" x="262.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="313.0" y="74">Neck</text><path d="M364.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="48" rx="6" stroke="#7395ad" width="102.0" x="378.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="429.0" y="74">Head</text><path d="M480.0 69 h14 l-4 -4 m4 4 l-4 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="48" rx="6" stroke="#7395ad" width="102.0" x="494.0" y="45"></rect><text fill="#263e4c" text-anchor="middle" x="545.0" y="74">後処理</text></svg><figcaption>図31.5　一段階検出</figcaption></figure><div class="table-wrap"><table><tr><th>方式</th><th>特徴</th><th>検討点</th></tr><tr><td>Faster R-CNN</td><td>候補領域を精査</td><td>計算量</td></tr><tr><td>SSD / YOLO系</td><td>密な候補予測</td><td>小物体・後処理</td></tr><tr><td>DETR系</td><td>集合予測</td><td>学習・解像度の設計</td></tr></table></div><h2 id="s5">31.5 Non-Maximum Suppression（NMS）</h2><p>同一物体に複数の候補が集中する場合、スコア順に候補を選び、選ばれた矩形とIoUが閾値を超える候補を除く。通常はクラスごとに実行する。閾値が低すぎると隣接する別個体を消し、高すぎると重複が残る。Soft-NMSは候補を即時除去せずスコアを減衰させる。スコア閾値とNMS閾値は別の設定である。</p><figure><svg aria-label="NMSの前後" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 175" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke-width="2"><rect height="95" stroke="#397b70" width="120" x="50" y="35"></rect><rect height="95" stroke="#b47845" width="120" x="57" y="40"></rect><rect height="95" stroke="#7395ad" width="120" x="43" y="30"></rect><rect height="65" stroke="#397b70" width="65" x="200" y="65"></rect><rect height="95" stroke="#397b70" width="120" x="370" y="35"></rect><rect height="65" stroke="#397b70" width="65" x="520" y="65"></rect></g><text x="150" y="155">候補4個</text><text x="310" y="85">→</text><text x="440" y="155">残存2個</text></svg><figcaption>図31.6　NMSの前後</figcaption></figure><div class="code-head"><span>コード31.3　クラス内NMS（前節のiouを利用）</span><button data-copy="code3" type="button">コピー</button></div><pre><code id="code3">def nms(boxes,scores,threshold=.5):
+    order = np.argsort(-np.asarray(scores),kind='stable').tolist()
+    keep = []
+    while order:
+        i = order.pop(0)
+        keep.append(i)
+        order = [j for j in order if iou(boxes[i],boxes[j]) &lt;= threshold]
+    return keep
+boxes = np.array([[0,0,10,10],[1,1,11,11],[20,20,30,30]])
+assert nms(boxes,[.9,.8,.7]) == [0,2]
+print(nms(boxes,[.9,.8,.7]))
+</code></pre><h2 id="s6">31.6 検出の評価：APとmAP</h2><p>第22章のPrecision・Recallを検出に拡張する。同一クラスの予測をスコア降順に並べ、各画像内で未対応の正解矩形とIoUを比較する。閾値以上のIoUを持つ未対応の正解のうち、原則として最大IoUの正解に一対一で対応した予測をTP、重複や誤検出をFPとする。見逃しはFNとなる。正解数をNとすると、順位kまでのRecallは累積TP/Nである。</p>$$P_k=\frac{TP_k}{k},\quad R_k=\frac{TP_k}{N}$$<p>APはPrecision–Recall曲線を要約する。COCOでは101個のRecall点で補間Precisionを平均し、主要指標はIoU 0.50〜0.95を0.05刻みで平均する。クラス、面積区分、最大検出数、crowdやignoreの扱いも定義されている。AP50と主要APを混同しない。以下は単一クラスで正解3個、スコア順のTP/FPが1,0,1,0,1という教育用例で、完全なCOCO評価器ではない。101点補間APは約0.756436となる。</p><div class="code-head"><span>コード31.4　101点補間APの計算（マッチング済みの例）</span><button data-copy="code4" type="button">コピー</button></div><pre><code id="code4">import numpy as np
+
+def ap101(tp,n_gt):
+    tp = np.asarray(tp,int)
+    if n_gt &lt;= 0:
+        return np.nan
+    r = np.cumsum(tp)/n_gt
+    p = np.cumsum(tp)/np.arange(1,len(tp)+1)
+    return np.mean([p[r&gt;=t].max(initial=0) for t in np.linspace(0,1,101)])
+print(ap101([1,0,1,0,1],3))
+assert ap101([1,1,1],3) == 1
+</code></pre><h2 id="s7">31.7 セグメンテーションのラベルと前処理</h2><p>意味領域の正解は高さH、幅Wの整数クラスID行列であり、予測は各画素のKクラスロジットである。マスクを通常の画像のようにbilinear補間するとクラスIDが混ざるため、整数ラベルにはnearest neighborを使用する。画像とマスクの幾何変換は同期させ、明るさや色変換は画像だけに適用する。無効画素はignore IDとして損失と評価から除外する。以下のPetデータでは元のID 1・2・3を0・1・2に変換する（物体・背景・境界の順）。図31.7の模式例のID順とは異なる。背景クラスと未注釈を区別する。</p><figure><svg aria-label="画素ごとのマスク" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 205" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="34" width="34" x="70" y="15"></rect><text fill="#263e4c" text-anchor="middle" x="87" y="37">0</text><rect fill="#e4edf4" height="34" width="34" x="105" y="15"></rect><text fill="#263e4c" text-anchor="middle" x="122" y="37">0</text><rect fill="#b47845" height="34" width="34" x="140" y="15"></rect><text fill="white" text-anchor="middle" x="157" y="37">2</text><rect fill="#e4edf4" height="34" width="34" x="175" y="15"></rect><text fill="#263e4c" text-anchor="middle" x="192" y="37">0</text><rect fill="#e4edf4" height="34" width="34" x="210" y="15"></rect><text fill="#263e4c" text-anchor="middle" x="227" y="37">0</text><rect fill="#e4edf4" height="34" width="34" x="70" y="50"></rect><text fill="#263e4c" text-anchor="middle" x="87" y="72">0</text><rect fill="#b47845" height="34" width="34" x="105" y="50"></rect><text fill="white" text-anchor="middle" x="122" y="72">2</text><rect fill="#397b70" height="34" width="34" x="140" y="50"></rect><text fill="white" text-anchor="middle" x="157" y="72">1</text><rect fill="#b47845" height="34" width="34" x="175" y="50"></rect><text fill="white" text-anchor="middle" x="192" y="72">2</text><rect fill="#e4edf4" height="34" width="34" x="210" y="50"></rect><text fill="#263e4c" text-anchor="middle" x="227" y="72">0</text><rect fill="#b47845" height="34" width="34" x="70" y="85"></rect><text fill="white" text-anchor="middle" x="87" y="107">2</text><rect fill="#397b70" height="34" width="34" x="105" y="85"></rect><text fill="white" text-anchor="middle" x="122" y="107">1</text><rect fill="#397b70" height="34" width="34" x="140" y="85"></rect><text fill="white" text-anchor="middle" x="157" y="107">1</text><rect fill="#397b70" height="34" width="34" x="175" y="85"></rect><text fill="white" text-anchor="middle" x="192" y="107">1</text><rect fill="#b47845" height="34" width="34" x="210" y="85"></rect><text fill="white" text-anchor="middle" x="227" y="107">2</text><rect fill="#e4edf4" height="34" width="34" x="70" y="120"></rect><text fill="#263e4c" text-anchor="middle" x="87" y="142">0</text><rect fill="#b47845" height="34" width="34" x="105" y="120"></rect><text fill="white" text-anchor="middle" x="122" y="142">2</text><rect fill="#397b70" height="34" width="34" x="140" y="120"></rect><text fill="white" text-anchor="middle" x="157" y="142">1</text><rect fill="#b47845" height="34" width="34" x="175" y="120"></rect><text fill="white" text-anchor="middle" x="192" y="142">2</text><rect fill="#e4edf4" height="34" width="34" x="210" y="120"></rect><text fill="#263e4c" text-anchor="middle" x="227" y="142">0</text><rect fill="#e4edf4" height="34" width="34" x="70" y="155"></rect><text fill="#263e4c" text-anchor="middle" x="87" y="177">0</text><rect fill="#e4edf4" height="34" width="34" x="105" y="155"></rect><text fill="#263e4c" text-anchor="middle" x="122" y="177">0</text><rect fill="#b47845" height="34" width="34" x="140" y="155"></rect><text fill="white" text-anchor="middle" x="157" y="177">2</text><rect fill="#e4edf4" height="34" width="34" x="175" y="155"></rect><text fill="#263e4c" text-anchor="middle" x="192" y="177">0</text><rect fill="#e4edf4" height="34" width="34" x="210" y="155"></rect><text fill="#263e4c" text-anchor="middle" x="227" y="177">0</text><text x="290" y="60">0: 背景</text><text x="290" y="100">1: 物体</text><text x="290" y="140">2: 境界</text></svg><figcaption>図31.7　画素ごとのマスク</figcaption></figure><div class="code-head"><span>コード31.5　Oxford-IIIT Petのデータ準備（tensorflow-datasetsが必要）</span><button data-copy="code5" type="button">コピー</button></div><pre><code id="code5">import tensorflow as tf
+import tensorflow_datasets as tfds
+from tensorflow import keras
+keras.utils.set_random_seed(31)
+raw = tfds.load('oxford_iiit_pet:3.*.*',split=['train[:80%]','train[80%:]','test'])
+def prep(item):
+    x = tf.image.resize(item['image'],(128,128))/255.0
+    y = tf.image.resize(item['segmentation_mask'],(128,128),method='nearest')
+    y = tf.cast(tf.squeeze(y,-1),tf.int32)-1
+    return x,y
+
+def augment(x,y):
+    flip = tf.random.uniform(()) &lt; .5
+    return tf.cond(flip,lambda:(tf.image.flip_left_right(x),tf.reverse(y,[1])),lambda:(x,y))
+train = raw[0].shuffle(1000,seed=31).map(prep).map(augment).batch(16).prefetch(tf.data.AUTOTUNE)
+valid = raw[1].map(prep).batch(16).prefetch(tf.data.AUTOTUNE)
+test = raw[2].map(prep).batch(16).prefetch(tf.data.AUTOTUNE)
+</code></pre><h2 id="s8">31.8 U-NetとEncoder–Decoder構造</h2><p>分類CNNは解像度を縮小し意味的な特徴を抽出するが、領域予測では画素位置に対応する出力が必要になる。U-NetはEncoderで解像度を縮小し、Decoderで復元する。同じ解像度のEncoder特徴を連結するskip connectionにより、境界や局所的な情報を利用できる。第19章の残差加算とは異なり、典型的なU-Netではチャネル方向に連結する。FCNは全畳み込み型の予測、DeepLab系は膨張畳み込みと多尺度文脈、Mask R-CNNは個体ごとのマスク予測を扱う。</p><figure><svg aria-label="U-Netの縮小・復元とスキップ接続" role="img" style="width:100%;height:auto;background:#fffdf9;font-family:sans-serif;font-size:14px" viewbox="0 0 640 260" xmlns="http://www.w3.org/2000/svg"><g fill="#e4edf4" stroke="#7395ad"><rect height="55" width="90" x="25" y="25"></rect><rect height="55" width="90" x="145" y="105"></rect><rect height="55" width="90" x="275" y="185"></rect><rect height="55" width="90" x="405" y="105"></rect><rect height="55" width="90" x="525" y="25"></rect></g><g fill="none" stroke="#397b70" stroke-width="2"><path d="M115 52 H525 M235 132 H405" stroke-dasharray="5 4"></path><path d="M115 80 L145 105 M235 160 L275 185 M365 185 L405 160 M495 105 L525 80"></path></g><g text-anchor="middle"><text x="70" y="48">128²</text><text x="70" y="66">32ch</text><text x="190" y="128">64²</text><text x="190" y="146">64ch</text><text x="320" y="208">32²</text><text x="320" y="226">128ch</text><text x="450" y="128">64²</text><text x="450" y="146">64ch</text><text x="570" y="48">128²</text><text x="570" y="66">32ch</text></g></svg><figcaption>図31.8　U-Netの縮小・復元とスキップ接続</figcaption></figure><div class="code-head"><span>コード31.6　小型U-Net（前節に続けて実行）</span><button data-copy="code6" type="button">コピー</button></div><pre><code id="code6">L = keras.layers
+def block(x,n):
+    for _ in range(2):
+        x = L.Conv2D(n,3,padding='same',activation='relu')(x)
+    return x
+inp = keras.Input((128,128,3))
+a = block(inp,32)
+b = block(L.MaxPooling2D()(a),64)
+c = block(L.MaxPooling2D()(b),128)
+for skip,n in [(b,64),(a,32)]:
+    c = L.Conv2DTranspose(n,2,strides=2,padding='same')(c)
+    c = block(L.Concatenate()([c,skip]),n)
+model = keras.Model(inp,L.Conv2D(3,1)(c))
+model.compile(optimizer=keras.optimizers.Adam(1e-3),
+    loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+    metrics=[keras.metrics.SparseCategoricalAccuracy(),
+             keras.metrics.MeanIoU(num_classes=3,sparse_y_pred=False)])
+model.fit(train,validation_data=valid,epochs=25,callbacks=[
+    keras.callbacks.EarlyStopping(monitor='val_loss',patience=5,restore_best_weights=True)])
+model.evaluate(test)
+</code></pre><h2 id="s9">31.9 画素単位の損失と評価指標</h2><p>多クラスの画素分類ではSparse Categorical Crossentropyが基本である。二値領域ならBCEを用いる。背景が大部分を占める場合、画素Accuracyは高くても物体領域を全く検出できないことがある。Dice係数は重なりを次のように定義する。</p>$$D=\frac{2TP}{2TP+FP+FN},\qquad IoU=\frac{TP}{TP+FP+FN},\qquad D=\frac{2IoU}{1+IoU}$$<p>学習時は離散化せず確率を使うsoft Diceを定義する。εは分母0を避けるための小値である。離散DiceとIoUの関係式は分母が正の場合に成立する。下例はバッチ全体と空間軸で集計しクラス平均を取る方式で、CEと組み合わせる。評価ではデータセット全体の混同行列からクラスごとのIoUを求め、その平均をmIoUとする。正解・予測とも存在しないクラスの扱いは評価仕様に従う。</p><div class="code-head"><span>コード31.7　多クラスCE＋soft Dice（任意の代替損失、無効画素なしを前提）</span><button data-copy="code7" type="button">コピー</button></div><pre><code id="code7">def ce_dice(y_true,logits):
+    y = tf.one_hot(tf.cast(y_true,tf.int32),3)
+    p = tf.nn.softmax(logits,axis=-1)
+    ce = tf.reduce_mean(tf.keras.losses.sparse_categorical_crossentropy(y_true,logits,from_logits=True))
+    inter = tf.reduce_sum(y*p,axis=[0,1,2])
+    denom = tf.reduce_sum(y+p,axis=[0,1,2])
+    return ce + 1-tf.reduce_mean((2*inter+1e-6)/(denom+1e-6))
+</code></pre><div class="code-head"><span>コード31.8　混同行列とmIoU（NumPy）</span><button data-copy="code8" type="button">コピー</button></div><pre><code id="code8">import numpy as np
+
+def segmentation_metrics(y,p,k,ignore=-1):
+    y,p = np.asarray(y).ravel(),np.asarray(p).ravel()
+    valid = y != ignore
+    y,p = y[valid],p[valid]
+    assert np.all((0&lt;=y)&amp;(y&lt;k)) and np.all((0&lt;=p)&amp;(p&lt;k))
+    cm = np.bincount(k*y+p,minlength=k*k).reshape(k,k)
+    tp = cm.diagonal()
+    union = cm.sum(0)+cm.sum(1)-tp
+    iou = np.divide(tp,union,out=np.full(k,np.nan),where=union&gt;0)
+    return cm,iou,np.nanmean(iou)
+y = np.array([0]*90+[1]*10)
+p = np.zeros_like(y)
+cm,per_class,miou = segmentation_metrics(y,p,2)
+print(cm,per_class,miou)
+assert np.isclose(miou,.45)
+</code></pre><h2 id="s10">31.10 推論・誤差分析と提出</h2><p>検証画像を元画像・正解・予測の三列で比較する。境界のずれ、小物体の欠落、クラス混同、背景の誤検出を分けて数える。検出の場合はサイズ別APやスコア分布も調べる。マスク推論ではlogitsをargmaxする前に元解像度へ補間する方法と、離散マスクをnearestで拡大する方法がある。検証で採用方法を固定する。コンペでは矩形の座標形式やマスクのRLE仕様を必ず確認する。以下は列優先・1始まりの二値RLE例であり、COCOの圧縮RLEとは異なる。</p><div class="code-head"><span>コード31.9　予測マスクの可視化（学習後）</span><button data-copy="code9" type="button">コピー</button></div><pre><code id="code9">import matplotlib.pyplot as plt
+x,y = next(iter(valid))
+pred = tf.argmax(model(x,training=False),axis=-1)
+fig,axes = plt.subplots(1,3,figsize=(9,3))
+for ax,img,title in zip(axes,[x[0],y[0],pred[0]],['Image','Truth','Prediction']):
+    ax.imshow(img,cmap='viridis',vmin=0,vmax=2) if title!='Image' else ax.imshow(img)
+    ax.set_title(title); ax.axis('off')
+plt.show()
+</code></pre><div class="code-head"><span>コード31.10　二値RLEの往復検証</span><button data-copy="code10" type="button">コピー</button></div><pre><code id="code10">import numpy as np
+
+def encode(mask):
+    a = np.asarray(mask).ravel(order='F')
+    if not np.all((a == 0) | (a == 1)):
+        raise ValueError('mask must be binary')
+    a = a.astype(np.uint8)
+    edges = np.flatnonzero(np.diff(np.r_[0,a,0]))+1
+    edges[1::2] -= edges[::2]
+    return ' '.join(map(str,edges))
+
+def decode(text,shape):
+    a = np.zeros(np.prod(shape),dtype=np.uint8)
+    v = list(map(int,text.split()))
+    if len(v) % 2:
+        raise ValueError('RLE requires start-length pairs')
+    end = 0
+    for s,n in zip(v[::2],v[1::2]):
+        if s &lt; 1 or n &lt; 1 or s-1 &lt; end or s-1+n &gt; a.size:
+            raise ValueError('invalid or overlapping run')
+        a[s-1:s-1+n]=1
+        end = s-1+n
+    return a.reshape(shape,order='F')
+m = np.array([[0,1,0],[1,1,0]],dtype=np.uint8)
+assert np.array_equal(m,decode(encode(m),m.shape))
+print(encode(m))
+</code></pre><h2 id="s11">31.11 まとめと確認問題</h2><p>検出は位置とクラス、セグメンテーションは画素領域を扱う。データ拡張、座標復元、評価仕様の一貫性が重要である。掲載したU-Netは教育用の小型モデルであり、TensorFlow学習は未実行。検出器の学習全体ではなく、検出の構成要素をNumPyで実装する範囲とした。</p><details id="ex-1"><summary>問1　分類と検出の違いは？</summary><p>検出は個体ごとの位置も予測する。</p></details><details id="ex-2"><summary>問2　IoUの分母は？</summary><p>和集合の面積。</p></details><details id="ex-3"><summary>問3　NMSで別個体が消える原因は？</summary><p>重なりが閾値を超える場合。</p></details><details id="ex-4"><summary>問4　AP50とCOCO主要APの違いは？</summary><p>後者は複数のIoU閾値で平均する。</p></details><details id="ex-5"><summary>問5　マスクのリサイズ方法は？</summary><p>整数ラベルはnearest neighbor。</p></details><details id="ex-6"><summary>問6　U-Netのスキップ接続の目的は？</summary><p>高解像度の局所情報を復元に活用する。</p></details><details id="ex-7"><summary>問7　背景90%をすべて背景と予測したときのmIoUは？</summary><p>2クラスなら(0.9+0)/2=0.45。</p></details><details id="ex-8"><summary>問8　RLEの注意点は？</summary><p>走査順・開始番号・空マスクの仕様。</p></details><details id="ex-9"><summary>問9　発展：CEとCE＋Diceを比較せよ。</summary><p>同一分割・シード・学習予算で、同じ初期重みからCEとCE＋Diceの各モデルを学習し、共通指標の検証mIoU（大きいほど良い）で停止・選択する。クラス別IoUも比較し、モデル選択後のみテストを評価する。損失の尺度が異なるため、両モデルのval_lossの大小を直接比較しない。</p></details><h3>参考資料</h3><p><a href="https://www.tensorflow.org/tutorials/images/segmentation">TensorFlow Image segmentation</a>、<a href="https://cocodataset.org/dataset/detection-eval.htm">COCO Detection Evaluation</a></p><nav aria-label="章送り" class="chap-nav"><a href="chapter30.html"><span class="dir">◀ 前章</span><span class="ttl">第30章　画像分類</span></a><a href="chapter32.html"><span class="dir">次章 ▶</span><span class="ttl">第32章　自然言語処理</span></a></nav><div class="toc-back"><a href="#">章の先頭へ戻る</a>　<a href="index.html">全体目次へ</a></div></main><script>document.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);b.textContent="コピー済み";}catch(e){b.textContent="選択してコピーしてください";}}));</script></body></html>

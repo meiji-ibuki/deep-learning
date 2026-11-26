@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+
+<html lang="ja"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>第17章 カスタム学習処理の実装｜深層学習の基礎と実践</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&amp;family=Shippori+Mincho:wght@500;600;700&amp;family=Zen+Kaku+Gothic+Antique:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="style.css" rel="stylesheet"/><script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async="" src="https://cdn.jsdelivr.net/npm/mathjax@3.2.1/es5/tex-svg-full.js"></script></head><body><div class="topbar"><div class="inner"><a class="book" href="index.html">深層学習の基礎と実践</a><span>第17章</span></div></div><main class="page"><header class="chapter-head"><p class="eyebrow">Part III / Chapter 17</p><h1>第17章　カスタム学習処理の実装</h1><p class="lead">標準の学習処理を理解し、必要な部分を自分で拡張する</p></header><blockquote><b>この章の到達目標</b><ul><li>独自レイヤー・損失・評価指標・コールバックを実装する。</li><li>train_stepと独自学習ループを使い分ける。</li><li>独自モデルの保存・復元と数値検証を行う。</li></ul></blockquote><nav class="section-toc"><b>本章の目次</b><ol><li><a href="#s1">17.1 標準機能を拡張するということ</a></li><li><a href="#s2">17.2 カスタムレイヤーと学習可能な重み</a></li><li><a href="#s3">17.3 カスタム活性化関数と補助損失</a></li><li><a href="#s4">17.4 カスタム損失関数とサンプル重み</a></li><li><a href="#s5">17.5 カスタム評価指標と状態の管理</a></li><li><a href="#s6">17.6 カスタムコールバック</a></li><li><a href="#s7">17.7 train_stepとtest_stepのオーバーライド</a></li><li><a href="#s8">17.8 Custom Training Loop：学習全体を制御する</a></li><li><a href="#s9">17.9 シリアライズとモデルの保存・復元</a></li><li><a href="#s10">17.10 実践：比較実験とデバッグ</a></li><li><a href="#s11">17.11 まとめと確認問題</a></li></ol></nav><p>実装はKeras 3・TensorFlowバックエンドを想定します。TensorFlowによる実行検証は未実施です。コードの期待値は数式に基づきます。</p><hr/><h2 id="s1">17.1 標準機能を拡張するということ</h2><p>第14〜16章ではモデルを構築し、compileとfitを使い、データを供給しました。標準の学習処理で表現できない計算が必要な場合、Kerasでは必要な部分だけを置き換えられます。たとえばコンペの評価指標が独自の誤差であればMetricを追加し、学習時にだけ補助損失を加えたいならLayerやModelを拡張します。</p><p>重要なのは、<strong>変更したい責務だけを変更する</strong>ことです。すべてを手書きにすると、評価の集約や保存、分散学習などの責任まで自分で負うことになります。本章ではTensorFlowバックエンドのKeras 3、単一デバイス・float32を前提とします。コード17.1以降は順番に実行してください。</p><div class="table-wrap"><table><thead><tr><th>変更対象</th><th>拡張方法</th><th>標準機能として残るもの</th></tr></thead><tbody><tr><td>順伝播</td><td>Layer.call</td><td>fit・評価・更新</td></tr><tr><td>損失</td><td>Loss.call</td><td>集約・自動微分</td></tr><tr><td>評価</td><td>Metric</td><td>エポック管理</td></tr><tr><td>学習中のイベント</td><td>Callback</td><td>学習ループ</td></tr><tr><td>1ステップの更新</td><td>Model.train_step</td><td>fit・コールバック</td></tr><tr><td>全体の制御</td><td>独自ループ</td><td>自動微分などの低水準API</td></tr></tbody></table></div><figure><svg aria-label="必要な部分だけを拡張する" role="img" viewbox="0 0 640 108" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="10.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="43">Layer / Loss</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="65">計算を定義</text><path d="M154.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="75" rx="6" stroke="#7395ad" width="144.5" x="168.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="43">Metric / Callback</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="65">観測・制御</text><path d="M313.0 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="75" rx="6" stroke="#7395ad" width="144.5" x="327.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="43">train_step</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="65">更新を定義</text><path d="M471.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="485.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="43">独自ループ</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="65">全体を制御</text></svg><figcaption>図17.1　必要な部分だけを拡張する</figcaption></figure><div class="code-head"><span>コード17.1　共通の準備</span><button data-copy="code1" type="button">コピー</button></div><pre><code id="code1">import os
+os.environ["KERAS_BACKEND"] = "tensorflow"
+import tensorflow as tf
+import keras
+import numpy as np
+import matplotlib.pyplot as plt
+keras.utils.set_random_seed(42)
+assert keras.backend.backend() == "tensorflow"</code></pre><hr/><h2 id="s2">17.2 カスタムレイヤーと学習可能な重み</h2><p>Layerは計算と状態をまとめる単位です。入力の幅に依存しない設定は<code>__init__</code>、入力の形状に依存する重みは<code>build</code>、順伝播は<code>call</code>に記述します。第12章のDenseクラスと異なり、逆伝播はTensorFlowが担当します。</p>$$Y=XW+b$$<p>入力が $(B,d)$、出力幅が $h$ なら、重みは $(d,h)$、バイアスは $(h,)$ です。Keras 3では追跡される重みを作るためにadd_weightを使います。単なるtf.Variableを属性に代入するだけではKerasの重みとして追跡されない場合があります。trainable=Falseの重みは通常のオプティマイザ更新の対象外ですが、状態更新や保存の対象になり得ます。</p><figure><svg aria-label="Layerのライフサイクル" role="img" viewbox="0 0 640 108" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="10.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="43">__init__</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="65">設定を保持</text><path d="M154.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="75" rx="6" stroke="#7395ad" width="144.5" x="168.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="43">build</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="65">重みを生成</text><path d="M313.0 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="75" rx="6" stroke="#7395ad" width="144.5" x="327.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="43">call</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="65">順伝播（反復）</text><path d="M471.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="485.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="43">GradientTape</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="65">勾配を計算</text></svg><figcaption>図17.2　Layerのライフサイクル</figcaption></figure><div class="code-head"><span>コード17.2　独自の全結合層</span><button data-copy="code2" type="button">コピー</button></div><pre><code id="code2">@keras.saving.register_keras_serializable(package="Study")
+class Affine(keras.layers.Layer):
+    def __init__(self, units, **kwargs):
+        super().__init__(**kwargs)
+        self.units = units
+
+    def build(self, input_shape):
+        self.W = self.add_weight(name="kernel", shape=(input_shape[-1], self.units),
+                                 initializer="glorot_uniform", trainable=True)
+        self.b = self.add_weight(name="bias", shape=(self.units,), initializer="zeros")
+        super().build(input_shape)
+
+    def call(self, inputs):
+        return tf.matmul(inputs, self.W) + self.b
+
+    def get_config(self):
+        return {**super().get_config(), "units": self.units}
+
+layer = Affine(3)
+x = tf.ones((4, 2))
+with tf.GradientTape() as tape:
+    y = layer(x)
+    loss = tf.reduce_sum(y)
+gw, gb = tape.gradient(loss, layer.trainable_variables)
+assert y.shape == (4, 3)
+np.testing.assert_allclose(gw.numpy(), np.full((2, 3), 4.))
+np.testing.assert_allclose(gb.numpy(), np.full(3, 4.))</code></pre><p>重みをcallのたびに作ると、前回の学習結果が失われるうえ、グラフ実行の制約にも抵触します。入力shapeが決まった最初の呼び出しで作り、その後は再利用します。上の勾配は入力がすべて1なので各要素が4になると手計算できます。</p><hr/><h2 id="s3">17.3 カスタム活性化関数と補助損失</h2><p>状態のない演算は関数で実装できます。たとえば固定係数のLeaky ReLUは $g(z)=\max(z,0)+0.1\min(z,0)$ です。一方、係数を学習したい場合はLayerの重みとして持たせます。KerasTensorをFunctional APIで扱う際、TensorFlow演算はカスタムLayerのcall内に置くかkeras.opsを使います。</p><p>レイヤーの出力に制約を加えたい場合はadd_lossが利用できます。たとえば中間表現 $a$ の大きさを抑制する補助項 $\lambda\operatorname{mean}(a^2)$ を設定します。標準fitではこの項も目的関数に含まれます。独自ループではmodel.lossesを明示的に加えます。</p><div class="code-head"><span>コード17.3　活性化関数と補助損失を持つ層</span><button data-copy="code3" type="button">コピー</button></div><pre><code id="code3">@keras.saving.register_keras_serializable(package="Study")
+def leaky01(x):
+    return keras.ops.maximum(x, 0.) + 0.1 * keras.ops.minimum(x, 0.)
+
+@keras.saving.register_keras_serializable(package="Study")
+class ActivityPenalty(keras.layers.Layer):
+    def __init__(self, rate=0.001, **kwargs):
+        super().__init__(**kwargs)
+        self.rate = rate
+
+    def call(self, inputs):
+        self.add_loss(self.rate * tf.reduce_mean(tf.square(inputs)))
+        return inputs
+
+    def get_config(self):
+        return {**super().get_config(), "rate": self.rate}
+
+penalty = ActivityPenalty(rate=0.1)
+_ = penalty(tf.constant([[1., 3.]]))
+np.testing.assert_allclose(float(penalty.losses[0]), 0.5)</code></pre><figure><svg aria-label="補助損失は予測損失に加算する" role="img" viewbox="0 0 640 108" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="197.33333333333334" x="10.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="108.66666666666667" y="43">モデルの出力</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="108.66666666666667" y="65">予測損失</text><path d="M207.33333333333334 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="75" rx="6" stroke="#7395ad" width="197.33333333333334" x="221.33333333333334" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="43">中間表現</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="65">補助損失</text><path d="M418.6666666666667 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="75" rx="6" stroke="#7395ad" width="197.33333333333334" x="432.6666666666667" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="43">合計 J</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="65">逆伝播</text></svg><figcaption>図17.3　補助損失は予測損失に加算する（矢印は項の集約順を表し、順伝播の依存関係ではない）</figcaption></figure><p>この例は訓練・評価の両方で補助項を加えます。training引数を使う設計では訓練時だけの処理と推論時の処理を区別します。DropoutやBatch Normalizationを含むモデルでは、独自ループでもtraining=True/Falseを正しく渡します。</p><hr/><h2 id="s4">17.4 カスタム損失関数とサンプル重み</h2><p>第10章のHuber Lossを独自実装します。残差 $e=\hat y-y$ に対し、閾値 $\delta&gt;0$ を境に二乗と線形を切り替えます。</p>$$\ell_\delta(e)=\begin{cases}e^2/2 &amp; |e|\le\delta\\\delta(|e|-\delta/2)&amp; |e|&gt;\delta\end{cases}$$<p>Loss.callは原則として標本ごとの損失を返し、バッチの平均化はLoss基底クラスに委ねます。ここでは回帰の正解・予測をともに(B,D)に統一し、出力軸だけ平均します。マスク付き系列などでは集約軸をタスクに合わせて設計します。</p><div class="code-head"><span>コード17.4　Huber Lossの独自実装と標準実装との照合</span><button data-copy="code4" type="button">コピー</button></div><pre><code id="code4">@keras.saving.register_keras_serializable(package="Study")
+class CustomHuber(keras.losses.Loss):
+    def __init__(self, delta=1., **kwargs):
+        super().__init__(**kwargs)
+        if delta &lt;= 0:
+            raise ValueError("delta must be positive")
+        self.delta = delta
+
+    def call(self, y_true, y_pred):
+        tf.debugging.assert_equal(tf.shape(y_true), tf.shape(y_pred))
+        e = tf.abs(y_pred - y_true)
+        q = tf.minimum(e, self.delta)
+        return tf.reduce_mean(0.5 * q**2 + self.delta * (e-q), axis=-1)
+
+    def get_config(self):
+        return {**super().get_config(), "delta": self.delta}
+
+a = tf.zeros((3, 1)); b = tf.constant([[0.5], [2.], [-3.]])
+w = tf.constant([1., 2., 0.])
+custom = CustomHuber(reduction="none")
+np.testing.assert_allclose(custom(a,b), keras.losses.Huber(reduction="none")(a,b))
+print(CustomHuber()(a,b,sample_weight=w).numpy())  # 3.125 / 3
+print(CustomHuber(reduction="mean_with_sample_weight")(a,b,sample_weight=w).numpy())</code></pre><div class="table-wrap"><table><thead><tr><th>残差</th><th>標本損失</th><th>重み</th><th>重み付き損失</th></tr></thead><tbody><tr><td>0.5</td><td>0.125</td><td>1</td><td>0.125</td></tr><tr><td>2</td><td>1.5</td><td>2</td><td>3</td></tr><tr><td>−3</td><td>2.5</td><td>0</td><td>0</td></tr></tbody></table></div><p>既定のsum_over_batch_sizeは重み付き損失の合計を標本数で割ります。mean_with_sample_weightは重みの合計で割ります。上の例では偶然どちらも3で割りますが、重みを[1, 4, 0]に変えると結果は異なります。損失の定義、重みの意味、評価指標の定義を揃えてください。</p><hr/><h2 id="s5">17.5 カスタム評価指標と状態の管理</h2><p>評価指標は必ずしも微分可能である必要はありません。たとえば許容誤差 $\tau$ 以内に予測できた割合を計測する指標を作ります。バッチごとの割合を単純平均すると、端数バッチに含まれる各標本の寄与が過大になります。正しい集約は分子と分母をそれぞれ累積することです。</p>$$M=\frac{\sum_i w_i\mathbf{1}(|y_i-\hat y_i|\le\tau)}{\sum_i w_i}$$<p>Metricはupdate_stateで状態を更新し、resultで値を返し、reset_stateで状態を初期化します。以下は単一出力回帰(B,1)専用の例です。sample_weightは(B,)とします。</p><div class="code-head"><span>コード17.5　許容誤差内の割合を集計するMetric</span><button data-copy="code5" type="button">コピー</button></div><pre><code id="code5">@keras.saving.register_keras_serializable(package="Study")
+class WithinTolerance(keras.metrics.Metric):
+    def __init__(self, tolerance=0.2, name="within_tolerance", **kwargs):
+        super().__init__(name=name, **kwargs)
+        if tolerance &lt; 0:
+            raise ValueError("tolerance must be nonnegative")
+        self.tolerance = tolerance
+        self.hits = self.add_weight(name="hits", initializer="zeros")
+        self.total = self.add_weight(name="total", initializer="zeros")
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.cast(y_true, self.dtype)
+        y_pred = tf.cast(y_pred, self.dtype)
+        tf.debugging.assert_shapes([(y_true, ("B", 1)), (y_pred, ("B", 1))])
+        ok = tf.cast(tf.abs(y_pred[:, 0]-y_true[:, 0]) &lt;= self.tolerance, self.dtype)
+        weight = tf.ones_like(ok) if sample_weight is None else tf.cast(tf.reshape(sample_weight, [-1]), self.dtype)
+        weight = tf.broadcast_to(weight, tf.shape(ok))
+        self.hits.assign_add(tf.reduce_sum(ok * weight))
+        self.total.assign_add(tf.reduce_sum(weight))
+
+    def result(self):
+        return tf.math.divide_no_nan(self.hits, self.total)
+
+    def reset_state(self):
+        self.hits.assign(0.)
+        self.total.assign(0.)
+
+    def get_config(self):
+        return {**super().get_config(), "tolerance": self.tolerance}
+
+metric = WithinTolerance()
+metric.update_state(tf.zeros((4,1)), tf.zeros((4,1)))
+metric.update_state(tf.zeros((1,1)), tf.ones((1,1)))
+np.testing.assert_allclose(metric.result(), 0.8)
+metric.reset_state()</code></pre><figure><svg aria-label="端数バッチを含む評価指標の集約" role="img" viewbox="0 0 640 108" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="197.33333333333334" x="10.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="108.66666666666667" y="43">Batch 1</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="108.66666666666667" y="65">4 / 4</text><path d="M207.33333333333334 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="75" rx="6" stroke="#7395ad" width="197.33333333333334" x="221.33333333333334" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="43">Batch 2</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="65">0 / 1</text><path d="M418.6666666666667 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="75" rx="6" stroke="#7395ad" width="197.33333333333334" x="432.6666666666667" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="43">合算</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="65">4 / 5 = 0.8</text></svg><figcaption>図17.4　端数バッチを含む評価指標の集約</figcaption></figure><p>バッチ平均の平均は(1+0)/2=0.5となり、正しい0.8とは異なります（全標本の重みが等しい場合）。compileのmetricsに渡した指標には通常sample_weightが適用されません。重み付き評価が必要ならweighted_metricsに指定します。F1やRMSEも全体の十分統計量から計算する必要があります。AUCのような指標は組み込み実装や全予測による評価を利用します。</p><hr/><h2 id="s6">17.6 カスタムコールバック</h2><p>Callbackは学習のイベントを受け取る仕組みです。on_train_begin、on_epoch_begin、on_train_batch_end、on_epoch_end、on_train_endなどを利用します。logsには利用可能な損失や評価指標が入ります。検証データを使う処理では、検証が実施されないエポックに備えてキーの存在を確認します。</p><div class="code-head"><span>コード17.6　検証指標の改善を記録するCallback</span><button data-copy="code6" type="button">コピー</button></div><pre><code id="code6">class ImprovementLog(keras.callbacks.Callback):
+    def on_train_begin(self, logs=None):
+        self.best = float("inf")
+        self.records = []
+
+    def on_epoch_end(self, epoch, logs=None):
+        value = (logs or {}).get("val_loss")
+        if value is not None and np.isfinite(value) and value &lt; self.best:
+            self.best = float(value)
+            self.records.append((epoch+1, self.best))
+            print(f"epoch={epoch+1}: best val_loss={self.best:.5f}")</code></pre><figure><svg aria-label="コールバックが受け取るイベント" role="img" viewbox="0 0 640 108" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="10.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="43">on_train_begin</text><path d="M154.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="75" rx="6" stroke="#7395ad" width="144.5" x="168.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="43">on_epoch_begin</text><path d="M313.0 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="75" rx="6" stroke="#7395ad" width="144.5" x="327.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="43">batch / epoch_end</text><path d="M471.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="485.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="43">on_train_end</text></svg><figcaption>図17.5　コールバックが受け取るイベント</figcaption></figure><p>コールバックを用いて検証指標を追加しModelCheckpointで監視する場合、指標をlogsに追加するコールバックを先に配置します。毎バッチのPython処理は速度低下の原因になります。テスト集合を使ったモデル選択は行わないようにしましょう。</p><hr/><h2 id="s7">17.7 train_stepとtest_stepのオーバーライド</h2><p>標準fitのエポック管理やCallbacksを維持しつつ、1バッチの更新処理だけを変更できます。ここではグローバルノルムによる勾配クリッピングを例にします。勾配全体のノルム $G=\sqrt{\sum_j\|g_j\|^2}$ が上限 $c$ を超えるとき、全勾配に $c/G$ を掛けます。上限は正の値とします。通常はOptimizerのglobal_clipnormでも実現できますが、学習ステップの構造を理解するため手書きします。</p><figure><svg aria-label="独自train_stepの処理" role="img" viewbox="0 0 640 108" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="10.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="43">データ展開</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="65">x, y, weight</text><path d="M154.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="75" rx="6" stroke="#7395ad" width="144.5" x="168.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="43">Tape</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="65">順伝播・損失</text><path d="M313.0 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="75" rx="6" stroke="#7395ad" width="144.5" x="327.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="43">gradient</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="65">クリッピング</text><path d="M471.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="485.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="43">更新・集約</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="65">logsを返す</text></svg><figcaption>図17.6　独自train_stepの処理</figcaption></figure><div class="code-head"><span>コード17.7　独自の学習・評価ステップ</span><button data-copy="code7" type="button">コピー</button></div><pre><code id="code7">@keras.saving.register_keras_serializable(package="Study")
+class ClippedRegressor(keras.Model):
+    def __init__(self, width=16, clip_norm=1., **kwargs):
+        super().__init__(**kwargs)
+        self.width = width
+        if clip_norm &lt;= 0:
+            raise ValueError("clip_norm must be positive")
+        self.clip_norm = clip_norm
+        self.hidden = Affine(width)
+        self.penalty = ActivityPenalty()
+        self.head = Affine(1)
+        self.loss_meter = keras.metrics.Mean(name="loss")
+        self.score = WithinTolerance()
+
+    def call(self, x, training=False):
+        return self.head(self.penalty(leaky01(self.hidden(x))))
+
+    @property
+    def metrics(self):
+        return [self.loss_meter, self.score]
+
+    def train_step(self, data):
+        x, y, sw = keras.utils.unpack_x_y_sample_weight(data)
+        with tf.GradientTape() as tape:
+            pred = self(x, training=True)
+            loss = self.compute_loss(x=x, y=y, y_pred=pred, sample_weight=sw)
+        variables = self.trainable_variables
+        grads = tape.gradient(loss, variables)
+        if any(g is None for g in grads):
+            raise ValueError("Disconnected gradient")
+        for g in grads:
+            tf.debugging.assert_all_finite(g, "Invalid gradient")
+        grads, _ = tf.clip_by_global_norm(grads, self.clip_norm)
+        self.optimizer.apply_gradients(zip(grads, variables))
+        return self.record(y, pred, loss, sw)
+
+    def test_step(self, data):
+        x, y, sw = keras.utils.unpack_x_y_sample_weight(data)
+        pred = self(x, training=False)
+        loss = self.compute_loss(x=x, y=y, y_pred=pred, sample_weight=sw)
+        return self.record(y, pred, loss, sw)
+
+    def record(self, y, pred, loss, sw):
+        self.loss_meter.update_state(loss, sample_weight=tf.shape(y)[0])
+        self.score.update_state(y, pred, sample_weight=sw)
+        return {m.name: m.result() for m in self.metrics}
+
+    def get_config(self):
+        return {**super().get_config(), "width": self.width, "clip_norm": self.clip_norm}</code></pre><p>compute_lossはcompileで設定された損失とmodel.lossesを含みます。この例の集約はsum_over_batch_sizeの損失を前提に標本数で重み付けしています。mean_with_sample_weightの場合は、損失の分母と補助項を別々に集計するなど設計を変更します。metricsプロパティに列挙した指標はfit/evaluateによってリセットされます。本例はcompileにmetricsを渡さず、独自指標を明示管理します。混合精度・分散学習は本例の対象外です。</p><hr/><h2 id="s8">17.8 Custom Training Loop：学習全体を制御する</h2><p>複数回の更新、独自のエポック定義、複数のモデルの交互学習などでは、ループ全体を管理する方法が有用です。以下では標準の回帰モデルを独自ループで学習します。訓練と検証でMetricを分け、更新前の予測で訓練指標を記録します。検証では更新を行いません。</p><div class="code-head"><span>コード17.8　データ準備と独自ループ</span><button data-copy="code8" type="button">コピー</button></div><pre><code id="code8">rng = np.random.default_rng(42)
+X = rng.uniform(-2, 2, (640, 1)).astype("float32")
+y = (np.sin(2*X) + rng.normal(0, .05, X.shape)).astype("float32")
+idx = rng.permutation(len(X))
+tr, va, te = idx[:400], idx[400:520], idx[520:]
+train_ds = tf.data.Dataset.from_tensor_slices((X[tr], y[tr])).shuffle(len(tr), seed=42).batch(32).prefetch(tf.data.AUTOTUNE)
+val_ds = tf.data.Dataset.from_tensor_slices((X[va], y[va])).batch(32)
+net = keras.Sequential([keras.Input((1,)), Affine(16), keras.layers.Activation(leaky01), ActivityPenalty(), Affine(1)])
+opt = keras.optimizers.Adam(.01)
+loss_fn = CustomHuber()
+train_mae = keras.metrics.MeanAbsoluteError()
+val_mae = keras.metrics.MeanAbsoluteError()
+
+@tf.function
+def step(xb, yb):
+    with tf.GradientTape() as tape:
+        pred = net(xb, training=True)
+        loss = loss_fn(yb, pred)
+        if net.losses:
+            loss += tf.add_n(net.losses)
+    grads = tape.gradient(loss, net.trainable_variables)
+    opt.apply_gradients(zip(grads, net.trainable_variables))
+    train_mae.update_state(yb, pred)
+
+history = {"train": [], "val": []}
+for epoch in range(30):
+    train_mae.reset_state(); val_mae.reset_state()
+    for xb, yb in train_ds:
+        step(xb, yb)
+    for xb, yb in val_ds:
+        val_mae.update_state(yb, net(xb, training=False))
+    history["train"].append(float(train_mae.result()))
+    history["val"].append(float(val_mae.result()))
+plt.plot(range(1, len(history["train"])+1), history["train"], label="train MAE")
+plt.plot(range(1, len(history["val"])+1), history["val"], label="validation MAE")
+plt.xlabel("epoch"); plt.legend(); plt.show()</code></pre><figure><svg aria-label="独自ループで管理する状態" role="img" viewbox="0 0 640 108" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="10.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="43">指標リセット</text><path d="M154.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="75" rx="6" stroke="#7395ad" width="144.5" x="168.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="43">訓練バッチ</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="65">更新あり</text><path d="M313.0 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="75" rx="6" stroke="#7395ad" width="144.5" x="327.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="43">検証バッチ</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="65">更新なし</text><path d="M471.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="485.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="43">履歴・保存</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="65">次エポックへ</text></svg><figcaption>図17.7　独自ループで管理する状態</figcaption></figure><p>独自ループではEarlyStoppingやModelCheckpointは自動では呼ばれません。必要ならCallbackListを正しく構成するか、終了判定・保存処理を実装します。tf.functionの外でPythonの履歴を更新し、最初はEagerで動作確認してからグラフ化するとデバッグしやすくなります。</p><hr/><h2 id="s9">17.9 シリアライズとモデルの保存・復元</h2><p>独自クラスを含むモデルを保存するには、設定と状態の違いを理解する必要があります。get_configはコンストラクタに渡す設定を辞書として返し、add_weightによる状態は別途保存されます。register_keras_serializableにより登録名でオブジェクトを復元できます。ただし.kerasファイルにはPythonのクラス定義そのものは含まれません。別プロセスでは定義したモジュールを先にimportします。</p><figure><svg aria-label="保存から復元まで" role="img" viewbox="0 0 640 108" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="10.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="43">get_config</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="82.25" y="65">構造・設定</text><path d="M154.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="75" rx="6" stroke="#7395ad" width="144.5" x="168.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="43">add_weight</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="240.75" y="65">学習済み状態</text><path d="M313.0 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="75" rx="6" stroke="#7395ad" width="144.5" x="327.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="43">.keras</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="399.25" y="65">保存</text><path d="M471.5 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="144.5" x="485.5" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="43">定義をimport</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="557.75" y="65">load_model</text></svg><figcaption>図17.8　保存から復元まで</figcaption></figure><div class="code-head"><span>コード17.9　保存と予測値の照合</span><button data-copy="code9" type="button">コピー</button></div><pre><code id="code9">model = ClippedRegressor(width=16, clip_norm=1.)
+_ = model(tf.zeros((1,1)))
+model.compile(optimizer=keras.optimizers.Adam(.01), loss=CustomHuber())
+log = ImprovementLog()
+h = model.fit(train_ds, validation_data=val_ds, epochs=40, verbose=0,
+              callbacks=[log, keras.callbacks.EarlyStopping(patience=6, restore_best_weights=True)])
+model.save("custom_regressor.keras")
+restored = keras.models.load_model("custom_regressor.keras")
+np.testing.assert_allclose(model(X[va], training=False), restored(X[va], training=False), rtol=1e-5, atol=1e-6)
+print(restored.evaluate(X[te], y[te], return_dict=True, verbose=0))</code></pre><p>学習再開時にはオプティマイザの状態も確認します。EarlyStoppingで重みを戻した場合、オプティマイザの状態が同じ時点に戻るとは限りません。最良エポックから再開する目的なら、その時点のモデル全体をModelCheckpointで保存します。信頼できないファイルの読み込みには注意し、安易にsafe_mode=Falseを指定しないでください。</p><hr/><h2 id="s10">17.10 実践：比較実験とデバッグ</h2><p>上記の独自モデルと同じ構成を持つ標準モデルで、クリッピングの有無を比較します。訓練・検証分割と初期重み、データ順序、損失関数をそろえ、検証MAEを共通指標にします。下のコードでは比較のためシャッフルなしの固定順序を用います。テスト集合は設定を選び終えた後にのみ使用します。</p><div class="code-head"><span>コード17.10　クリッピングの有無を比較する</span><button data-copy="code10" type="button">コピー</button></div><pre><code id="code10">def make_standard():
+    return keras.Sequential([keras.Input((1,)), Affine(16),
+        keras.layers.Activation(leaky01), ActivityPenalty(), Affine(1)])
+base = make_standard()
+initial = base.get_weights()
+results = {}
+for label, clip in [("no clipping", None), ("clipping", 1.)]:
+    m = make_standard()
+    m.set_weights(initial)
+    m.compile(optimizer=keras.optimizers.Adam(.01, global_clipnorm=clip),
+              loss=CustomHuber(), metrics=[keras.metrics.MeanAbsoluteError()])
+    hist = m.fit(X[tr], y[tr], validation_data=(X[va], y[va]),
+                 batch_size=32, epochs=40, shuffle=False, verbose=0)
+    results[label] = hist.history["val_mean_absolute_error"]
+for label, values in results.items():
+    plt.plot(range(1, len(values)+1), values, label=label)
+plt.xlabel("epoch"); plt.ylabel("validation MAE"); plt.legend(); plt.show()</code></pre><p>クリッピングが有効であるかは勾配ノルムや検証結果によって判断します。上限が小さすぎれば学習が遅くなり得ます。ここでは組み込みOptimizerで比較し、独自train_stepの必要性と標準機能による代替可能性を区別しています。実測の学習曲線は未掲載です。</p><figure><svg aria-label="ノルムクリッピングの数値例（上限2）" role="img" viewbox="0 0 640 108" xmlns="http://www.w3.org/2000/svg"><rect fill="#e4edf4" height="75" rx="6" stroke="#7395ad" width="197.33333333333334" x="10.0" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="108.66666666666667" y="43">勾配 (3, 4)</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="108.66666666666667" y="65">ノルム 5</text><path d="M207.33333333333334 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#dcebe5" height="75" rx="6" stroke="#7395ad" width="197.33333333333334" x="221.33333333333334" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="43">倍率 2 / 5</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="320.0" y="65">0.4</text><path d="M418.6666666666667 53 h14 l-5 -4 m5 4 l-5 4" fill="none" stroke="#7395ad"></path><rect fill="#f4e7d7" height="75" rx="6" stroke="#7395ad" width="197.33333333333334" x="432.6666666666667" y="16"></rect><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="43">勾配 (1.2, 1.6)</text><text fill="#2f5b7c" font-size="14" text-anchor="middle" x="531.3333333333334" y="65">ノルム 2</text></svg><figcaption>図17.9　ノルムクリッピングの数値例（上限2）</figcaption></figure><div class="table-wrap"><table><thead><tr><th>症状</th><th>確認すること</th></tr></thead><tbody><tr><td>勾配がNone</td><td>Tape内で計算しているか・変数の接続</td></tr><tr><td>損失がNaN</td><td>入力・log・除算・学習率</td></tr><tr><td>指標が累積し続ける</td><td>reset_stateとmetricsの登録</td></tr><tr><td>検証値がおかしい</td><td>training=False・端数バッチ・集約分母</td></tr><tr><td>保存後に復元できない</td><td>登録名・get_config・クラスのimport</td></tr><tr><td>遅い</td><td>Python副作用・Retracing・バッチ処理</td></tr></tbody></table></div><hr/><h2 id="s11">17.11 まとめと確認問題</h2><p>標準の機能で解けるなら標準を利用し、必要な箇所だけを拡張します。独自処理では数式とshape、勾配、集約、学習と推論の違い、保存後の再現性を個別に検証することが大切です。</p><details id="ex-1"><summary>問　buildとcallの違いは？</summary><p>buildは入力形状に依存する状態を作り、callは繰り返し実行する計算を定義する。</p></details><details id="ex-2"><summary>問　Loss.callでバッチ平均を避ける理由は？</summary><p>標本重みやreductionを基底クラスが処理できるよう、標本ごとの損失を返す。</p></details><details id="ex-3"><summary>問　4件中4件、1件中0件が正解なら全体の正解率は？</summary><p>4/5=0.8。バッチ平均の単純平均0.5は誤り。</p></details><details id="ex-4"><summary>問　add_lossは独自ループで自動的に加算されるか？</summary><p>されない。model.lossesを目的関数に加える。compute_lossを利用する場合は重複加算しない。</p></details><details id="ex-5"><summary>問　test_stepでOptimizerを呼ぶべきか？</summary><p>呼ばない。検証・評価時はパラメータを更新しない。</p></details><details id="ex-6"><summary>問　勾配(3,4)を上限2でクリップすると？</summary><p>ノルム5なので倍率0.4、(1.2,1.6)となる。</p></details><details id="ex-7"><summary>問　カスタムクラスを別のPythonプロセスで復元する条件は？</summary><p>定義をimportし登録名を解決できること。設定から再構築できること。</p></details><details id="ex-8"><summary>問　独自ループでCallbacksが自動で動くか？</summary><p>動かない。必要なイベント呼び出しや同等の制御を実装する。</p></details><h3>発展演習：勾配クリッピングを検証する</h3><p>二つの勾配テンソル[3,4]と[12]をまとめて上限6.5でクリップします。個別のノルムでクリップする場合と比較し、方向が維持されることを確認してください。</p><details id="ex-9"><summary>解答・実装例</summary><div class="code-head"><span>コード17.11　グローバルノルムの数値検証</span><button data-copy="code11" type="button">コピー</button></div><pre><code id="code11">g = [tf.constant([3.,4.]), tf.constant([12.])]
+clipped, norm = tf.clip_by_global_norm(g, 6.5)
+np.testing.assert_allclose(norm.numpy(), 13.)
+np.testing.assert_allclose(clipped[0], [1.5,2.])
+np.testing.assert_allclose(clipped[1], [6.])
+np.testing.assert_allclose(tf.linalg.global_norm(clipped), 6.5)
+individual = [tf.clip_by_norm(v, 6.5) for v in g]
+print(tf.linalg.global_norm(individual).numpy())  # 約8.20061。全体の方向は変化する</code></pre></details><h3>参考資料</h3><p><a href="https://keras.io/guides/making_new_layers_and_models_via_subclassing/">LayerとModelの拡張</a>・<a href="https://keras.io/guides/custom_train_step_in_tensorflow/">train_stepの拡張</a>・<a href="https://keras.io/guides/writing_a_custom_training_loop_in_tensorflow/">独自学習ループ</a>・<a href="https://keras.io/guides/writing_your_own_callbacks/">Callbacks</a>・<a href="https://keras.io/guides/serialization_and_saving/">保存とシリアライズ</a>・<a href="https://keras.io/api/losses/">Losses</a>・<a href="https://keras.io/api/metrics/">Metrics</a>。</p><p>これで実装基礎編は終了です。第18章ではSGD、Momentum、Adam、AdamWなどの最適化アルゴリズムを体系的に学びます。</p><nav aria-label="章送り" class="chap-nav"><a href="chapter16.html"><span class="dir">◀ 前章</span><span class="ttl">第16章　データ前処理とパイプライン</span></a><a href="chapter18.html"><span class="dir">次章 ▶</span><span class="ttl">第18章　最適化アルゴリズム</span></a></nav><div class="toc-back"><a href="#">章の先頭へ戻る</a>　<a href="index.html">全体目次へ</a></div></main><script>document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);b.textContent='コピー済み';}catch(e){b.textContent='選択してコピーしてください';}}));</script></body></html>

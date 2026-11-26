@@ -1,0 +1,272 @@
+
+:root {
+  --ink:        #23252b;   /* 本文の墨色（真っ黒を避け目に優しく） */
+  --ink-soft:   #4a4e57;   /* やや淡い墨 */
+  --ink-faint:  #8a8f99;   /* キャプション等 */
+  --accent:     #2f5b7c;   /* 藍：見出し・強調のさし色 */
+  --accent-deep:#1f3d55;
+  --rule:       #e2ddd3;   /* 罫線 */
+  --bg:         #f7f5f0;   /* 生成りの背景 */
+  --paper:      #fffdf9;   /* 紙面 */
+  --mark:       #eef3f6;   /* 引用・囲みの淡い地色 */
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Zen Kaku Gothic New", -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  font-weight: 400;
+  line-height: 1.95;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── 上部の細い章バー ── */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(247,245,240,0.92);
+  backdrop-filter: saturate(140%) blur(6px);
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px; color: var(--ink-faint);
+  letter-spacing: 0.08em;
+}
+.topbar .inner {
+  max-width: 760px; margin: 0 auto; padding: 11px 32px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.topbar .book { font-family: "Shippori Mincho", serif; color: var(--accent); font-weight:600; }
+
+/* ── 本文の器 ── */
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 76px 32px 120px;
+  background: var(--paper);
+  min-height: 100vh;
+  box-shadow: 0 0 60px rgba(120,110,90,0.06);
+}
+
+/* ── 章扉 ── */
+.chapter-head {
+  margin: 0 0 68px;
+  padding-bottom: 34px;
+  border-bottom: 2px solid var(--accent);
+}
+.chapter-head .eyebrow {
+  font-family: "Shippori Mincho", serif;
+  font-size: 13px; letter-spacing: 0.32em;
+  color: var(--accent); text-transform: uppercase;
+  margin: 0 0 18px;
+}
+h1 {
+  font-family: "Shippori Mincho", serif;
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--accent-deep);
+  margin: 0;
+}
+
+/* ── 節見出し ── */
+h2 {
+  font-family: "Shippori Mincho", serif;
+  font-weight: 600;
+  font-size: 22px;
+  line-height: 1.55;
+  color: var(--accent-deep);
+  margin: 66px 0 22px;
+  padding-left: 16px;
+  border-left: 4px solid var(--accent);
+  scroll-margin-top: 60px;
+}
+/* ── 小見出し ── */
+h3 {
+  font-family: "Zen Kaku Gothic New", sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--accent-deep);
+  margin: 40px 0 14px;
+  scroll-margin-top: 60px;
+}
+h3::before { content: "◆"; color: var(--accent); font-size: 12px; margin-right: 8px; vertical-align: 2px; }
+
+p { margin: 0 0 20px; text-align: justify; }
+
+strong {
+  font-weight: 700;
+  color: var(--accent-deep);
+  background: linear-gradient(transparent 62%, #dbe6ee 62%, #dbe6ee 92%, transparent 92%);
+  padding: 0 1px;
+}
+
+/* ── 区切り（--- は章内の話題転換） ── */
+hr {
+  border: none;
+  height: 1px;
+  background: var(--rule);
+  margin: 52px 0;
+  position: relative;
+}
+hr::after {
+  content: "❊";
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%,-50%);
+  background: var(--paper); color: var(--ink-faint);
+  padding: 0 14px; font-size: 12px;
+}
+
+/* ── 図 ── */
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 12px auto 6px;
+  border-radius: 4px;
+}
+/* markdownで画像単独の段落は、altをキャプションに */
+figure { margin: 44px -20px; text-align: center; }
+@media (max-width: 640px) { figure { margin: 36px 0; } }
+figcaption {
+  font-family: "Zen Kaku Gothic Antique", sans-serif;
+  font-size: 13.5px; line-height: 1.75;
+  color: var(--ink-faint);
+  margin-top: 12px;
+  padding: 0 8px;
+}
+.fig-num { color: var(--accent); font-weight: 500; margin-right: 6px; }
+
+/* ── 表（比較表など） ── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 34px 0;
+  font-family: "Zen Kaku Gothic New", sans-serif;
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+thead th {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+  text-align: left;
+  padding: 12px 14px;
+  border: none;
+}
+tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid #e4ddd0;
+  color: var(--ink);
+  vertical-align: top;
+}
+tbody tr:nth-child(even) { background: rgba(47, 91, 124, 0.04); }
+tbody tr:hover { background: rgba(47, 91, 124, 0.08); }
+tbody td:first-child { font-weight: 600; color: var(--accent); }
+@media (max-width: 640px) {
+  table { font-size: 13px; }
+  thead th, tbody td { padding: 8px 9px; }
+}
+
+/* ── 引用（> ブロック：問題提起・囲み） ── */
+blockquote {
+  margin: 30px 0;
+  padding: 20px 26px;
+  background: var(--mark);
+  border-left: 4px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  color: var(--ink-soft);
+  font-size: 16px;
+}
+blockquote p:last-child { margin-bottom: 0; }
+
+/* ── コード ── */
+code {
+  font-family: "SF Mono", "Consolas", "Menlo", monospace;
+  font-size: 14.5px;
+  background: #eef0f2;
+  color: #b4453a;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+pre {
+  background: #2b2f38; color: #e6e8ec;
+  padding: 20px 22px; border-radius: 8px;
+  overflow-x: auto; line-height: 1.6;
+  margin: 28px 0; font-size: 14px;
+}
+pre code { background: none; color: inherit; padding: 0; }
+
+/* ── 数式のはみ出し対策 ── */
+mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+
+/* ── 章送りナビ ── */
+.chap-nav {
+  display: flex; justify-content: space-between; gap: 16px;
+  margin-top: 90px; padding-top: 30px;
+  border-top: 1px solid var(--rule);
+}
+.chap-nav a {
+  flex: 1; text-decoration: none;
+  padding: 16px 20px; border: 1px solid var(--rule); border-radius: 8px;
+  color: var(--ink-soft); background: var(--paper);
+  transition: border-color .2s, color .2s, transform .2s;
+}
+.chap-nav a:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+.chap-nav .dir { display:block; font-size: 12px; letter-spacing: .12em; color: var(--ink-faint); margin-bottom: 4px; }
+.chap-nav .ttl { font-family: "Shippori Mincho", serif; font-size: 15px; font-weight:600; line-height:1.5; }
+.chap-nav .next { text-align: right; }
+.chap-nav .disabled { visibility: hidden; }
+
+/* ── 目次へ戻るリンク ── */
+a.book { text-decoration: none; color: inherit; transition: color .2s; }
+a.book:hover { color: var(--accent); }
+.toc-back { text-align: center; margin-top: 26px; }
+.toc-back a {
+  display: inline-block; text-decoration: none;
+  font-family: "Zen Kaku Gothic New", sans-serif;
+  font-size: 13.5px; letter-spacing: .06em;
+  color: var(--ink-faint);
+  padding: 9px 22px; border: 1px solid var(--rule); border-radius: 999px;
+  background: var(--paper);
+  transition: border-color .2s, color .2s;
+}
+.toc-back a:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── レスポンシブ ── */
+@media (max-width: 640px) {
+  body { font-size: 16px; line-height: 1.85; }
+  .page { padding: 52px 20px 90px; }
+  .topbar .inner { padding: 10px 20px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+  .chap-nav { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { transition: none !important; }
+}
+
+/* 深層学習テキスト共通の補助スタイル */
+figure svg{width:100%;height:auto;display:block;margin:auto;background:#fffdf9;border:1px solid var(--rule);border-radius:8px} .table-wrap{overflow-x:auto} .table-wrap table{margin:0;min-width:420px} .table-wrap{margin:30px 0} .lead{color:var(--ink-soft);margin-top:18px} .section-toc{border:1px solid var(--rule);padding:18px 24px;border-radius:6px;margin:24px 0} .section-toc a,a{color:var(--accent)} .section-toc ol{margin:8px 0;padding-left:24px} .section-toc li{margin:3px 0} details{border:1px solid var(--rule);border-radius:6px;padding:12px 18px;margin:12px 0} summary{cursor:pointer;color:var(--accent-deep);font-weight:700} details p{margin:12px 0} .chap-nav .pending{flex:1;padding:16px 20px;border:1px dashed var(--rule);border-radius:8px;color:var(--ink-faint)} .code-head{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--ink-soft);margin-top:24px} .code-head+pre{margin-top:6px} button{font:inherit;color:var(--accent);background:var(--paper);border:1px solid var(--rule);border-radius:5px;padding:3px 10px;cursor:pointer} a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px} .tag{font-size:13px;color:var(--accent);letter-spacing:.08em} @media print{.topbar,.chap-nav,.toc-back,button{display:none}.page{max-width:none;padding:0;box-shadow:none}body{background:white;font-size:11pt}figure,table,pre{break-inside:avoid}h2,h3{break-after:avoid}}
+
+/* 校訂版：狭い画面での局所スクロールと長い文字列の折返し */
+.page, .table-wrap, figure, pre, .section-toc, details { min-width: 0; max-width: 100%; }
+.page { overflow-wrap: anywhere; }
+.table-wrap { overflow-x: auto; }
+.table-wrap table { overflow-wrap: normal; }
+p code, li code, td code, summary code { white-space: normal; overflow-wrap: anywhere; }
+pre { overflow-x: auto; overflow-wrap: normal; }
+pre code { white-space: pre; overflow-wrap: normal; }
+figure svg { max-width: 100%; }
+mjx-container[jax] { max-width: 100%; }
+mjx-container[display="true"] { display: block; width: 100%; max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+@media (max-width: 640px) {
+  mjx-container:not([display="true"]) { display: inline-block; vertical-align: middle; max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+  .code-head { gap: 8px; align-items: flex-start; }
+  .code-head button { flex-shrink: 0; }
+  .chap-nav a, .chap-nav .pending { min-width: 0; }
+}
